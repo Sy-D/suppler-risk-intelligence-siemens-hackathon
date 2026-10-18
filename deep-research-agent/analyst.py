@@ -9,21 +9,9 @@ Usage:
 
 from __future__ import annotations
 
-import os
 import sys
-from pathlib import Path
 
-ENV_FILE = Path(__file__).resolve().parent / ".env"
-
-
-def _load_env_file() -> None:
-    if not ENV_FILE.exists():
-        return
-    for line in ENV_FILE.read_text().splitlines():
-        line = line.strip()
-        if line and not line.startswith("#") and "=" in line:
-            key, _, value = line.partition("=")
-            os.environ.setdefault(key.strip(), value.strip())
+from app import load_env_file
 
 
 ANALYST_PROMPT = (
@@ -53,5 +41,5 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    _load_env_file()
+    load_env_file()
     raise SystemExit(main())

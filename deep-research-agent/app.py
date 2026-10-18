@@ -39,6 +39,18 @@ DEFAULT_MODEL = "MiniMaxAI/MiniMax-M3"
 DEFAULT_SUPPLIERS = ["Robert Bosch GmbH"]
 OUTPUT_CSV = Path("output/suppliers.csv")
 REASONING_JSONL = Path("output/suppliers_reasoning.jsonl")
+ENV_FILE = Path(__file__).resolve().parent / ".env"
+
+
+def load_env_file(path: Path = ENV_FILE) -> None:
+    """Set env vars from a local .env file without overriding existing ones."""
+    if not path.exists():
+        return
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key, _, value = line.partition("=")
+            os.environ.setdefault(key.strip(), value.strip())
 
 RESEARCH_PROMPT = (
     "You are researching supplier risk for procurement due diligence. "
@@ -172,12 +184,24 @@ def process_supplier(
 
 def main(argv: Sequence[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
-    suppliers = argv or DEFAULT_SUPPLIERS
+    json_mode = "--json" in argv
+    suppliers = [arg for arg in argv if arg != "--json"] or DEFAULT_SUPPLIERS
     try:
         results = [process_supplier(name) for name in suppliers]
     except RuntimeError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
+    if json_mode:
+        print(
+            json.dumps(
+                {
+                    "suppliers": [
+                        {"row": row, "reasoning": reasoning} for row, reasoning in results
+                    ]
+                }
+            )
+        )
+        return 0
     for row, reasoning in results:
         print(render_table(row))
         print()
@@ -188,4 +212,5 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    load_env_file()
     raise SystemExit(main())
