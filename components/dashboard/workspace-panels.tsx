@@ -45,6 +45,7 @@ import {
 } from "@/components/ui/table"
 import { RiskBadge, riskDimensions } from "@/components/dashboard/risk-badge"
 import { streamAgent } from "@/lib/agent-events"
+import { matchSuppliers } from "@/lib/fuzzy-match"
 import type { Supplier } from "@/lib/supplier-data"
 
 interface ColumnInfo {
@@ -381,10 +382,14 @@ export function ResearchDialog({
   open,
   onOpenChange,
   onResearched,
+  onSelectExisting,
+  suppliers,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   onResearched: (supplier: Supplier) => void
+  onSelectExisting: (supplier: Supplier) => void
+  suppliers: Supplier[]
 }) {
   const [name, setName] = useState("")
   const [loading, setLoading] = useState(false)
@@ -394,8 +399,16 @@ export function ResearchDialog({
   const [reasoning, setReasoning] = useState<{
     columns: Record<string, ColumnInfo>
   } | null>(null)
+  const [matches, setMatches] = useState<Supplier[] | null>(null)
+
+  function checkFirst() {
+    const hits = matchSuppliers(name, suppliers)
+    if (hits.length) setMatches(hits)
+    else run()
+  }
 
   async function run() {
+    setMatches(null)
     setLoading(true)
     setError("")
     setResult(null)
@@ -453,14 +466,14 @@ export function ResearchDialog({
           className="flex gap-2"
           onSubmit={(event) => {
             event.preventDefault()
-            if (name.trim() && !loading) run()
+            if (name.trim() && !loading) checkFirst()
           }}
         >
           <Input
             className="h-11 min-w-0 flex-1 text-base md:text-sm"
             value={name}
             onChange={(event) => setName(event.target.value)}
-            placeholder="Company name, e.g. Continental AG"
+            placeholder="Company name or ID, e.g. Continental AG / SUPP_00018"
             disabled={loading}
           />
           <Button
@@ -472,6 +485,39 @@ export function ResearchDialog({
             Research
           </Button>
         </form>
+        {matches ? (
+          <div className="space-y-2 rounded-2xl bg-muted p-4">
+            <p className="text-xs font-medium">
+              Already in your dataset — pick a match to select it, or research
+              anyway.
+            </p>
+            {matches.map((supplier) => (
+              <button
+                key={supplier.id}
+                type="button"
+                className="flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2 text-left hover:bg-background"
+                onClick={() => onSelectExisting(supplier)}
+              >
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-medium">
+                    {supplier.name}
+                  </span>
+                  <span className="font-mono text-[11px] text-muted-foreground">
+                    {supplier.id}
+                  </span>
+                </span>
+                <RiskBadge level={supplier.level} />
+              </button>
+            ))}
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={run}
+            >
+              Not a match — research anyway
+            </Button>
+          </div>
+        ) : null}
         {loading ? (
           <div
             className="rounded-2xl bg-muted p-5 text-sm leading-relaxed"
