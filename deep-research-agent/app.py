@@ -319,6 +319,8 @@ def _progress_handler_class():
                 except (ValueError, SyntaxError):
                     parsed = {}
             query = parsed.get("query") if isinstance(parsed, dict) else None
+            if query and len(query) > 120:
+                query = query[:117] + "…"
             progress(
                 self.label,
                 f"searching: {query}" if query else "gathering information",

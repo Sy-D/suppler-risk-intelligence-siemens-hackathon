@@ -116,7 +116,7 @@ export function ActivityLog({ lines }: { lines: string[] }) {
       {lines.map((line, i) => (
         <li key={i} className="flex items-start gap-1.5">
           <StepIcon line={line} />
-          <span className="min-w-0 truncate">{line}</span>
+          <span className="min-w-0 break-words">{line}</span>
         </li>
       ))}
     </ul>
