@@ -25,6 +25,12 @@ and fill in `NEBIUS_API_KEY` and `TAVILY_API_KEY` first — the app works
 without keys but the research and analyst features will fail. Research
 results persist in the `agent-output` volume.
 
+"Ask your analyst" runs `scripts/ask.py`, which turns the question into SQL
+over `data/suppliers.duckdb` (built from the CSV by `scripts/create_duckdb.py`;
+the Docker image does this at build time). Locally, run
+`.venv/bin/python scripts/create_duckdb.py` once. Override the interpreter or
+script with `ANALYST_PYTHON` / `ANALYST_SCRIPT`.
+
 ## Interface
 
 The dashboard uses the original shadcn preset `b5JgvMPyq` (`base-maia`, Zinc, Geist), with NumberFlow on the four portfolio fact cards. Table headers toggle ascending/descending sorting. Both searches offer keyboard-accessible supplier suggestions. Risk level, maximum total/financial risk, minimum delivery and sourcing-risk filters narrow the portfolio.

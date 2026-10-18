@@ -1,5 +1,6 @@
 "use client"
 
+import { MarkdownAnswer } from "./markdown-answer"
 import { RiskBar } from "./risk-bar"
 import {
   AnimatedNumber,
@@ -14,6 +15,7 @@ import {
   LoaderCircle,
   Search,
   Sparkles,
+  Trash2,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -195,17 +197,34 @@ export function ComparisonDialog({
   )
 }
 
-async function askAnalyst(question: string): Promise<string> {
+type AnalystTurn = {
+  question: string
+  answer: string
+  sql: string
+  failed?: boolean
+}
+
+async function askAnalyst(
+  question: string,
+  previous?: AnalystTurn
+): Promise<{ answer: string; sql: string }> {
   const response = await fetch("/api/analyst", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ question }),
+    body: JSON.stringify({
+      question,
+      previous: previous && {
+        question: previous.question,
+        sql: previous.sql,
+        answer: previous.answer,
+      },
+    }),
   })
   const data = await response.json()
   if (!response.ok) {
-    throw new Error(data.error ?? "The research agent failed")
+    throw new Error(data.error ?? "The analyst failed")
   }
-  return data.answer
+  return { answer: data.answer, sql: data.sql }
 }
 
 export function AnalystSheet({
@@ -216,26 +235,36 @@ export function AnalystSheet({
   onOpenChange: (open: boolean) => void
 }) {
   const [question, setQuestion] = useState("")
-  const [answer, setAnswer] = useState("")
-  const [loading, setLoading] = useState(false)
+  const [turns, setTurns] = useState<AnalystTurn[]>([])
+  const [pending, setPending] = useState("")
+  const loading = pending !== ""
   const prompts = [
-    "What are the biggest current risk signals for Continental AG?",
-    "Which recent events raise the risk of sourcing semiconductors from Nexperia?",
+    "Which 5 suppliers have the highest total risk?",
+    "How many suppliers are rated Critical, and what is their average financial health score?",
   ]
   async function ask(text: string) {
-    setQuestion(text)
-    setLoading(true)
-    setAnswer("")
+    // The last successful turn gives the model context for follow-ups.
+    const previous = turns.findLast((turn) => !turn.failed)
+    setPending(text)
+    setQuestion("")
     try {
-      setAnswer(await askAnalyst(text))
+      const result = await askAnalyst(text, previous)
+      setTurns((all) => [...all, { question: text, ...result }])
     } catch (error) {
-      setAnswer(
-        error instanceof Error
-          ? error.message
-          : "The research agent could not be reached."
-      )
+      setTurns((all) => [
+        ...all,
+        {
+          question: text,
+          sql: "",
+          failed: true,
+          answer:
+            error instanceof Error
+              ? error.message
+              : "The analyst could not be reached.",
+        },
+      ])
     } finally {
-      setLoading(false)
+      setPending("")
     }
   }
   return (
@@ -247,51 +276,80 @@ export function AnalystSheet({
             Ask your analyst
           </SheetTitle>
           <SheetDescription>
-            Explore supplier risks with answers grounded in live web research.
+            Ask questions about the supplier dataset in plain language.
           </SheetDescription>
         </SheetHeader>
         <div className="flex-1 space-y-6 overflow-y-auto px-6 py-2">
-          <Badge variant="secondary">
-            Live research · deep agent + web search
-          </Badge>
-          <div className="space-y-2">
-            {prompts.map((prompt) => (
+          <div className="flex items-center justify-between gap-2">
+            <Badge variant="secondary">Text-to-SQL · supplier dataset</Badge>
+            {turns.length > 0 && (
               <Button
-                key={prompt}
                 variant="outline"
-                className="h-auto min-h-12 w-full justify-start py-3 text-left whitespace-normal"
+                size="sm"
                 disabled={loading}
-                onClick={() => ask(prompt)}
+                onClick={() => {
+                  setTurns([])
+                  setQuestion("")
+                }}
               >
-                {prompt}
+                <Trash2 data-icon="inline-start" />
+                Clear chat
               </Button>
-            ))}
+            )}
           </div>
-          {loading ? (
-            <div
-              className="flex items-start gap-3 rounded-2xl bg-muted p-5 text-sm leading-relaxed"
-              role="status"
-            >
-              <LoaderCircle className="mt-0.5 size-4 shrink-0 animate-spin" />
-              <p>
-                Researching the web… the analyst plans, searches and reads
-                sources, so a run takes a minute or two.
+          {turns.length === 0 && !loading && (
+            <div className="space-y-2">
+              {prompts.map((prompt) => (
+                <Button
+                  key={prompt}
+                  variant="outline"
+                  className="h-auto min-h-12 w-full justify-start py-3 text-left whitespace-normal"
+                  onClick={() => ask(prompt)}
+                >
+                  {prompt}
+                </Button>
+              ))}
+            </div>
+          )}
+          {turns.map((turn, index) => (
+            <div key={index} className="space-y-2">
+              <p className="ml-auto w-fit max-w-[85%] rounded-2xl bg-primary px-4 py-2 text-sm text-primary-foreground">
+                {turn.question}
               </p>
+              {turn.failed ? (
+                <div className="rounded-2xl bg-destructive/10 p-5 text-sm leading-relaxed whitespace-pre-line text-destructive">
+                  {turn.answer}
+                </div>
+              ) : (
+                <div className="rounded-2xl bg-muted p-5 text-sm leading-relaxed">
+                  <MarkdownAnswer>{turn.answer}</MarkdownAnswer>
+                </div>
+              )}
             </div>
-          ) : answer ? (
-            <div
-              className="rounded-2xl bg-muted p-5 text-sm leading-relaxed whitespace-pre-line"
-              role="status"
-            >
-              {answer}
+          ))}
+          {loading ? (
+            <div className="space-y-2">
+              <p className="ml-auto w-fit max-w-[85%] rounded-2xl bg-primary px-4 py-2 text-sm text-primary-foreground">
+                {pending}
+              </p>
+              <div
+                className="flex items-start gap-3 rounded-2xl bg-muted p-5 text-sm leading-relaxed"
+                role="status"
+              >
+                <LoaderCircle className="mt-0.5 size-4 shrink-0 animate-spin" />
+                <p>
+                  Querying the dataset… the analyst writes SQL, runs it and
+                  summarises the results.
+                </p>
+              </div>
             </div>
-          ) : (
+          ) : turns.length > 0 ? null : (
             <div className="py-10 text-center">
               <Sparkles className="mx-auto mb-4 size-7 text-muted-foreground" />
-              <h3 className="font-medium">Ask about a real supplier.</h3>
+              <h3 className="font-medium">Ask about your suppliers.</h3>
               <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                The analyst researches public sources and returns a cited risk
-                answer.
+                The analyst turns your question into a query over the supplier
+                dataset and explains the results.
               </p>
             </div>
           )}
@@ -312,7 +370,9 @@ export function AnalystSheet({
               className="h-11 min-w-0 flex-1 text-base md:text-sm"
               value={question}
               onChange={(event) => setQuestion(event.target.value)}
-              placeholder="Ask about a supplier…"
+              placeholder={
+                turns.length ? "Ask a follow-up…" : "Ask about a supplier…"
+              }
             />
             <Button
               type="submit"
@@ -326,7 +386,7 @@ export function AnalystSheet({
           </div>
           <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
             <FileText className="size-3" />
-            deep research agent · Nebius Token Factory + Tavily
+            DuckDB + Nebius Token Factory
           </p>
         </form>
       </SheetContent>
