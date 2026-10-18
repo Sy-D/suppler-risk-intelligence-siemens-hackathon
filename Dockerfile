@@ -5,12 +5,15 @@
 FROM oven/bun:1 AS deps
 WORKDIR /app
 COPY package.json bun.lock ./
+# patchedDependencies (patches/) must be present before install.
+COPY patches ./patches
 RUN bun install --frozen-lockfile
 
 # Production-only node_modules for the runtime image.
 FROM oven/bun:1 AS prod-deps
 WORKDIR /app
 COPY package.json bun.lock ./
+COPY patches ./patches
 RUN bun install --frozen-lockfile --production
 
 FROM node:22-bookworm-slim AS build

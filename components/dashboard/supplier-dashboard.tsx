@@ -1,8 +1,10 @@
 "use client"
 
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
+import Link from "next/link"
 import { useDeferredValue, useEffect, useMemo, useState } from "react"
 import { NumberFlowGroup } from "@number-flow/react"
+import { MetalFx } from "metal-fx"
 import { useTheme } from "next-themes"
 import type { BorderBeamColorVariant } from "border-beam"
 import {
@@ -11,17 +13,11 @@ import {
   ArrowUpDown,
   ArrowRight,
   ArrowUpRight,
-  Building2,
   Check,
   ChevronLeft,
   ChevronRight,
-  FileText,
   GitCompareArrows,
-  LayoutDashboard,
-  Moon,
-  Search,
   Sparkles,
-  Sun,
   X,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
@@ -35,7 +31,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { Separator } from "@/components/ui/separator"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
   Select,
@@ -45,23 +40,6 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import {
-  Sidebar,
-  SidebarContent,
-  SidebarFooter,
-  SidebarGroup,
-  SidebarGroupContent,
-  SidebarGroupLabel,
-  SidebarHeader,
-  SidebarInset,
-  SidebarMenu,
-  SidebarMenuBadge,
-  SidebarMenuButton,
-  SidebarMenuItem,
-  SidebarProvider,
-  SidebarRail,
-  SidebarTrigger,
-} from "@/components/ui/sidebar"
-import {
   Table,
   TableBody,
   TableCell,
@@ -69,7 +47,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { TooltipProvider } from "@/components/ui/tooltip"
+import { AppShell } from "./app-shell"
 import { RiskLandscape } from "@/components/dashboard/risk-landscape"
 import { euro, RiskBadge } from "@/components/dashboard/risk-badge"
 import {
@@ -126,14 +104,16 @@ export function SupplierDashboard({
   const chartQuery = useDeferredValue(chartSearch.trim().toLowerCase())
   const [chartRisk, setChartRisk] = useState("All risk levels")
   const [activeSupplier, setActiveSupplier] = useState<Supplier | null>(null)
+  const [analystHover, setAnalystHover] = useState(false)
   const [page, setPage] = useState(0)
   const [selectedIds, setSelectedIds] = useState(() => new Set<string>())
   const [panel, setPanel] = useState<WorkspacePanel>({ kind: "none" })
   const [notice, setNotice] = useState("")
   const [overlaySeed, setOverlaySeed] = useState<string | null>(null)
   const [chatSeed, setChatSeed] = useState<string | null>(null)
-  const { resolvedTheme, setTheme } = useTheme()
+  const { resolvedTheme } = useTheme()
   const router = useRouter()
+  const searchParams = useSearchParams()
 
   useEffect(() => {
     if (selectedIds.size === 0) return
@@ -330,128 +310,102 @@ export function SupplierDashboard({
     setNotice("Your shortlist memo has been downloaded.")
   }
 
+  // Deep links like /?panel=compare used by the sidebar on other pages.
+  useEffect(() => {
+    const target = searchParams.get("panel")
+    if (!target) return
+    const timer = setTimeout(() => {
+      if (target === "compare") setPanel({ kind: "compare" })
+      else if (target === "research") setPanel({ kind: "research" })
+      else if (target === "memo") exportMemo()
+      router.replace("/", { scroll: false })
+    }, 0)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams])
+
   return (
-    <TooltipProvider>
-      <SidebarProvider>
-        <a
-          href="#main"
-          className="sr-only fixed top-3 left-3 z-50 rounded-xl bg-primary px-4 py-3 text-primary-foreground focus:not-sr-only"
-        >
-          Skip to dashboard
-        </a>
-        <Sidebar variant="inset" collapsible="icon">
-          <SidebarHeader className="p-4 group-data-[collapsible=icon]:p-0">
-            <div className="flex items-center gap-3 overflow-hidden py-2 group-data-[collapsible=icon]:justify-center">
-              <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground">
-                <Building2 className="size-5" />
-              </div>
-              <div className="min-w-0 group-data-[collapsible=icon]:hidden">
-                <p className="text-sm font-semibold tracking-tight">
-                  Siemens Mobility
-                </p>
-                <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                  Supplier intelligence
-                </p>
-              </div>
-            </div>
-          </SidebarHeader>
-          <SidebarContent>
-            <SidebarGroup>
-              <SidebarGroupLabel>Workspace</SidebarGroupLabel>
-              <SidebarGroupContent>
-                <SidebarMenu>
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      isActive
-                      tooltip="Overview"
-                      render={<a href="#main" />}
-                    >
-                      <LayoutDashboard />
-                      <span>Overview</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      tooltip="Compare suppliers"
-                      onClick={() => setPanel({ kind: "compare" })}
-                    >
-                      <GitCompareArrows />
-                      <span>Compare</span>
-                    </SidebarMenuButton>
-                    <SidebarMenuBadge>
-                      <AnimatedNumber value={selected.length} />
-                    </SidebarMenuBadge>
-                  </SidebarMenuItem>
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      tooltip="Research agent"
-                      onClick={() => setPanel({ kind: "research" })}
-                    >
-                      <Search />
-                      <span>Research agent</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      tooltip="Export shortlist memo"
-                      disabled={selected.length === 0}
-                      onClick={exportMemo}
-                    >
-                      <FileText />
-                      <span>Decision memo</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                </SidebarMenu>
-              </SidebarGroupContent>
-            </SidebarGroup>
-          </SidebarContent>
-          <SidebarFooter className="gap-4 p-4 group-data-[collapsible=icon]:p-2">
-            <div className="flex items-center gap-3 overflow-hidden py-1">
-              <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium">
-                SM
-              </div>
-              <div className="group-data-[collapsible=icon]:hidden">
-                <p className="text-xs font-medium">Procurement workspace</p>
-                <p className="mt-1 text-[11px] text-muted-foreground">
-                  Siemens Mobility
-                </p>
-              </div>
-            </div>
-          </SidebarFooter>
-          <SidebarRail />
-        </Sidebar>
-        <SidebarInset>
-          <header className="flex h-16 shrink-0 items-center justify-between gap-4 border-b px-4 lg:px-8">
-            <div className="flex items-center gap-3">
-              <SidebarTrigger className="size-10" />
-              <Separator orientation="vertical" className="mr-1 h-4" />
-              <span className="text-sm text-muted-foreground">Workspace</span>
-              <ChevronRight className="size-3 text-muted-foreground" />
-              <span className="text-sm">Overview</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="ghost"
-                size="icon-lg"
-                aria-label="Toggle light and dark theme"
-                onClick={() =>
-                  setTheme(resolvedTheme === "dark" ? "light" : "dark")
-                }
-              >
-                <Sun className="hidden dark:block" />
-                <Moon className="dark:hidden" />
-              </Button>
-            </div>
-          </header>
+    <AppShell
+      breadcrumb={["Workspace", "Overview"]}
+      compareCount={selected.length}
+      overlay={
+        <>
+          <ComparisonDialog
+            open={panel.kind === "compare" || panel.kind === "profile"}
+            mode={panel.kind === "profile" ? "profile" : "compare"}
+            onOpenChange={(open) => {
+              if (!open) setPanel({ kind: "none" })
+            }}
+            suppliers={panel.kind === "profile" ? [panel.supplier] : selected}
+          />
+          <CommandSearch
+            open={overlaySeed !== null}
+            seed={overlaySeed ?? ""}
+            suppliers={suppliers}
+            onPick={(supplier) => {
+              setActiveSupplier(supplier)
+              setOverlaySeed(null)
+            }}
+            onAsk={(query) => {
+              setOverlaySeed(null)
+              setChatSeed(query)
+            }}
+            onClose={() => setOverlaySeed(null)}
+          />
+          <ChatDock
+            open={chatSeed !== null}
+            seed={chatSeed ?? ""}
+            suppliers={suppliers}
+            selected={selected}
+            onClose={() => setChatSeed(null)}
+            onOpenProfile={setActiveSupplier}
+          />
+          <ResearchDialog
+            open={panel.kind === "research"}
+            onOpenChange={(open) => {
+              if (!open) setPanel({ kind: "none" })
+            }}
+            suppliers={suppliers}
+            onSelectExisting={(supplier) => {
+              toggleSupplier(supplier.id, true)
+              setPanel({ kind: "none" })
+            }}
+            onResearched={(supplier) => {
+              setResearched((previous) =>
+                previous.some((s) => s.id === supplier.id)
+                  ? previous
+                  : [supplier, ...previous]
+              )
+              toggleSupplier(supplier.id, true)
+            }}
+          />
+        </>
+      }
+    >
           <div
             id="main"
             className="mx-auto flex w-full max-w-[1600px] flex-col gap-7 p-4 sm:p-6 lg:p-8"
           >
             <div className="flex flex-wrap items-center justify-end gap-5">
-              <Button size="lg" onClick={() => setChatSeed("")}>
-                <Sparkles data-icon="inline-start" />
-                Ask your analyst
-              </Button>
+              <MetalFx
+                preset="chromatic"
+                theme={resolvedTheme === "light" ? "light" : "dark"}
+                strength={analystHover ? 1 : 0.9}
+                glowGain={analystHover ? 1 : 0.7}
+                scale={1.4}
+                className="cursor-pointer rounded-4xl"
+                onMouseEnter={() => setAnalystHover(true)}
+                onMouseLeave={() => setAnalystHover(false)}
+              >
+                <Button
+                  size="lg"
+                  className="cursor-pointer text-inherit! transition-transform duration-150 active:scale-[0.97]"
+                  onClick={() => setChatSeed("")}
+                >
+                  <Sparkles data-icon="inline-start" />
+                  Ask your analyst
+                </Button>
+              </MetalFx>
             </div>
             <NumberFlowGroup>
               <section
@@ -536,6 +490,28 @@ export function SupplierDashboard({
                       Spot resilient suppliers. Investigate the outliers.
                     </CardDescription>
                     <CardAction>
+                      {selected.length > 0 && (
+                        <MetalFx
+                          preset="silver"
+                          theme={
+                            resolvedTheme === "light" ? "light" : "dark"
+                          }
+                          strength={0.85}
+                          className="rounded-4xl motion-safe:animate-detail-in"
+                        >
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            className="text-inherit!"
+                            onClick={() => {
+                              setSelectedIds(new Set())
+                              setNotice("Selection cleared.")
+                            }}
+                          >
+                            Reset
+                          </Button>
+                        </MetalFx>
+                      )}
                       <Badge
                         variant="secondary"
                         className="hidden font-normal sm:inline-flex"
@@ -713,7 +689,8 @@ export function SupplierDashboard({
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead className="w-10">
+                          <TableHead className="w-10 pl-1">
+                            <div className="flex size-10 items-center justify-center">
                             <Checkbox
                               aria-label="Select all suppliers on this page"
                               checked={
@@ -740,18 +717,20 @@ export function SupplierDashboard({
                                 })
                               }}
                             />
+                            </div>
                           </TableHead>
                           {(
                             [
-                              { key: "name", label: "Supplier" },
-                              { key: "risk", label: "Total risk" },
-                              { key: "level", label: "Risk level" },
-                              { key: "delivery", label: "Delivery" },
-                              { key: "exposure", label: "PO exposure" },
+                              { key: "name", label: "Supplier", numeric: false },
+                              { key: "risk", label: "Total risk", numeric: false },
+                              { key: "level", label: "Risk level", numeric: false },
+                              { key: "delivery", label: "Delivery", numeric: true },
+                              { key: "exposure", label: "PO exposure", numeric: true },
                             ] as const
                           ).map((column) => (
                             <TableHead
                               key={column.key}
+                              className={column.numeric ? "text-right" : undefined}
                               aria-sort={
                                 sort?.key === column.key
                                   ? sort.direction === "asc"
@@ -762,7 +741,7 @@ export function SupplierDashboard({
                             >
                               <Button
                                 variant="ghost"
-                                className="-ml-3 h-10 gap-2 whitespace-nowrap"
+                                className={`h-10 gap-2 whitespace-nowrap ${column.numeric ? "-mr-3" : "-ml-3"}`}
                                 onClick={() => sortColumn(column.key)}
                                 aria-label={`Sort by ${column.label}${sort?.key === column.key ? `, currently ${sort.direction === "asc" ? "ascending" : "descending"}` : ""}`}
                               >
@@ -858,11 +837,12 @@ export function SupplierDashboard({
                               <Button
                                 variant="ghost"
                                 size="icon-lg"
+                                nativeButton={false}
                                 aria-label={`View ${supplier.id} risk profile`}
-                                onClick={(event) => {
-                                  event.stopPropagation()
-                                  setPanel({ kind: "profile", supplier })
-                                }}
+                                onClick={(event) => event.stopPropagation()}
+                                render={
+                                  <Link href={`/supplier/${supplier.id}`} />
+                                }
                               >
                                 <ArrowUpRight className="size-4" />
                               </Button>
@@ -1013,58 +993,7 @@ export function SupplierDashboard({
               </div>
             )}
           </div>
-        </SidebarInset>
-        <ComparisonDialog
-          open={panel.kind === "compare" || panel.kind === "profile"}
-          mode={panel.kind === "profile" ? "profile" : "compare"}
-          onOpenChange={(open) => {
-            if (!open) setPanel({ kind: "none" })
-          }}
-          suppliers={panel.kind === "profile" ? [panel.supplier] : selected}
-        />
-        <CommandSearch
-          open={overlaySeed !== null}
-          seed={overlaySeed ?? ""}
-          suppliers={suppliers}
-          onPick={(supplier) => {
-            setActiveSupplier(supplier)
-            setOverlaySeed(null)
-          }}
-          onAsk={(query) => {
-            setOverlaySeed(null)
-            setChatSeed(query)
-          }}
-          onClose={() => setOverlaySeed(null)}
-        />
-        <ChatDock
-          open={chatSeed !== null}
-          seed={chatSeed ?? ""}
-          suppliers={suppliers}
-          selected={selected}
-          onClose={() => setChatSeed(null)}
-          onOpenProfile={setActiveSupplier}
-        />
-        <ResearchDialog
-          open={panel.kind === "research"}
-          onOpenChange={(open) => {
-            if (!open) setPanel({ kind: "none" })
-          }}
-          suppliers={suppliers}
-          onSelectExisting={(supplier) => {
-            toggleSupplier(supplier.id, true)
-            setPanel({ kind: "none" })
-          }}
-          onResearched={(supplier) => {
-            setResearched((previous) =>
-              previous.some((s) => s.id === supplier.id)
-                ? previous
-                : [supplier, ...previous]
-            )
-            toggleSupplier(supplier.id, true)
-          }}
-        />
-      </SidebarProvider>
-    </TooltipProvider>
+    </AppShell>
   )
 }
 

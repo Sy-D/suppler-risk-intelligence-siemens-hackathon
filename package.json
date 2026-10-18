@@ -28,6 +28,7 @@
     "lucide-react": "^1.59.0",
     "maplibre-gl": "^5",
     "mcp-handler": "^2.3.0",
+    "metal-fx": "^2.0.11",
     "next": "16.4.0",
     "next-themes": "^0.4.6",
     "react": "19.3.0",
@@ -55,5 +56,8 @@
     "prettier-plugin-tailwindcss": "^0.8.1",
     "tailwindcss": "^4",
     "typescript": "^5"
+  },
+  "patchedDependencies": {
+    "metal-fx@2.0.11": "patches/metal-fx@2.0.11.patch"
   }
 }
