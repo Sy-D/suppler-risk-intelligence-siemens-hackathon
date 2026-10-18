@@ -16,6 +16,7 @@ export function RiskLandscape({
   onSelectArea: (ids: string[]) => void
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const overlayRef = useRef<HTMLCanvasElement>(null)
   const { resolvedTheme } = useTheme()
   const [hovered, setHovered] = useState<Supplier | null>(null)
   const [drag, setDrag] = useState<{
@@ -82,35 +83,6 @@ export function RiskLandscape({
         )
         ctx.fill()
       }
-      if (hovered) {
-        const hx = xOf(hovered)
-        const hy = 8 + ((100 - hovered.delivery) / 45) * (height - 16)
-        const guide = style.getPropertyValue("--muted-foreground").trim()
-        ctx.globalAlpha = 0.55
-        ctx.strokeStyle = guide
-        ctx.lineWidth = 1
-        ctx.setLineDash([4, 4])
-        ctx.beginPath()
-        ctx.moveTo(hx, hy)
-        ctx.lineTo(hx, height - 8)
-        ctx.stroke()
-        ctx.beginPath()
-        ctx.moveTo(8, hy)
-        ctx.lineTo(hx, hy)
-        ctx.stroke()
-        ctx.setLineDash([])
-        ctx.globalAlpha = 1
-        ctx.fillStyle = style.getPropertyValue("--foreground").trim()
-        ctx.font = "11px ui-monospace, monospace"
-        ctx.textAlign = "center"
-        ctx.fillText(`${hovered.risk}`, hx, height - 14)
-        ctx.textAlign = "right"
-        ctx.fillText(
-          `${hovered.delivery.toFixed(0)}%`,
-          hx - 10,
-          hy + 4
-        )
-      }
       const active = suppliers.find((s) => s.id === activeId)
       if (active) {
         const local = ease(
@@ -144,7 +116,45 @@ export function RiskLandscape({
     const observer = new ResizeObserver(() => draw(progressRef.current))
     observer.observe(canvas)
     return () => observer.disconnect()
-  }, [suppliers, resolvedTheme, activeId, hovered])
+  }, [suppliers, resolvedTheme, activeId])
+
+  useEffect(() => {
+    const canvas = overlayRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext("2d")
+    if (!ctx) return
+    const width = canvas.clientWidth
+    const height = canvas.clientHeight
+    const ratio = Math.min(window.devicePixelRatio, 2)
+    canvas.width = width * ratio
+    canvas.height = height * ratio
+    ctx.scale(ratio, ratio)
+    const style = getComputedStyle(canvas)
+    if (!hovered) return
+    const hx = 8 + (hovered.risk / 100) * (width - 16)
+    const hy = 8 + ((100 - hovered.delivery) / 45) * (height - 16)
+    const guide = style.getPropertyValue("--muted-foreground").trim()
+    ctx.globalAlpha = 0.55
+    ctx.strokeStyle = guide
+    ctx.lineWidth = 1
+    ctx.setLineDash([4, 4])
+    ctx.beginPath()
+    ctx.moveTo(hx, hy)
+    ctx.lineTo(hx, height - 8)
+    ctx.stroke()
+    ctx.beginPath()
+    ctx.moveTo(8, hy)
+    ctx.lineTo(hx, hy)
+    ctx.stroke()
+    ctx.setLineDash([])
+    ctx.globalAlpha = 1
+    ctx.fillStyle = style.getPropertyValue("--foreground").trim()
+    ctx.font = "11px ui-monospace, monospace"
+    ctx.textAlign = "center"
+    ctx.fillText(`${hovered.risk}`, hx, height - 14)
+    ctx.textAlign = "right"
+    ctx.fillText(`${hovered.delivery.toFixed(0)}%`, hx - 10, hy + 4)
+  }, [suppliers, resolvedTheme, hovered])
 
   useEffect(() => {
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
@@ -195,18 +205,11 @@ export function RiskLandscape({
               <span key={line} className="w-full border-t border-border/70" />
             ))}
           </div>
-          {drag && (
-            <div
-              aria-hidden="true"
-              className="pointer-events-none absolute border border-foreground/60 bg-foreground/10"
-              style={{
-                left: Math.min(drag.x0, drag.x1),
-                top: Math.min(drag.y0, drag.y1),
-                width: Math.abs(drag.x1 - drag.x0),
-                height: Math.abs(drag.y1 - drag.y0),
-              }}
-            />
-          )}
+          <canvas
+            ref={overlayRef}
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 h-full w-full"
+          />
           <canvas
             ref={canvasRef}
             className="relative h-full w-full cursor-crosshair touch-manipulation"
@@ -298,6 +301,18 @@ export function RiskLandscape({
               setHovered(nearest)
             }}
           />
+          {drag && (
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute border border-foreground/60 bg-foreground/10"
+              style={{
+                left: Math.min(drag.x0, drag.x1),
+                top: Math.min(drag.y0, drag.y1),
+                width: Math.abs(drag.x1 - drag.x0),
+                height: Math.abs(drag.y1 - drag.y0),
+              }}
+            />
+          )}
         </div>
         {hovered && (
           <div className="pointer-events-none absolute top-3 right-3 rounded-xl border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-sm">

@@ -61,6 +61,17 @@
 - [x] Sidebar: "Suppliers"-Item (mit 10,000-Badge) entfernt — kein eigener
       Page-Link.
 
+## Nachtrag 2: Performance (Andrew-Qu-Regeln)
+- [x] `AnimatedNumber`: IntersectionObserver-Gate — offscreen rendert nur ein
+      Plain-`span` (formatiert), NumberFlow mountet erst bei Sichtbarkeit
+      (`rootMargin: 100px`). Spart Mount/Anim-Kosten in Tabelle + Cards.
+- [x] Chart gesplittet: Basis-Canvas (Dots) + Overlay-Canvas (`overlayRef`)
+      für Crosshair/Guides → Hover zeichnet nur Guides, nicht 10k Dots.
+      `hovered` aus den Main-draw-deps entfernt.
+- [x] `/compare`-Prefetch: `router.prefetch(/compare?ids=…)` sobald
+      `selectedIds.size > 0`.
+- [x] `app/compare/loading.tsx`: statische Shell → Navigation blockiert nicht.
+
 ## Verifikation
 - tsc --noEmit, oxlint, eslint: sauber.
 - Browser: Beams auf Cards sichtbar (4 Farben), Crosshair rendern,

@@ -1,5 +1,6 @@
 "use client"
 
+import { useRouter } from "next/navigation"
 import { useDeferredValue, useEffect, useMemo, useState } from "react"
 import { NumberFlowGroup } from "@number-flow/react"
 import { useTheme } from "next-themes"
@@ -123,6 +124,12 @@ export function SupplierDashboard({ suppliers }: { suppliers: Supplier[] }) {
   const [overlaySeed, setOverlaySeed] = useState<string | null>(null)
   const [chatSeed, setChatSeed] = useState<string | null>(null)
   const { resolvedTheme, setTheme } = useTheme()
+  const router = useRouter()
+
+  useEffect(() => {
+    if (selectedIds.size === 0) return
+    router.prefetch(`/compare?ids=${[...selectedIds].join(",")}`)
+  }, [selectedIds, router])
 
   useEffect(() => {
     function onType(event: KeyboardEvent) {
