@@ -3,18 +3,15 @@
 A supplier-risk research agent built on the
 [Nebius cookbook](https://dev.nebius.com/cookbook/deep-research-agent-tavily):
 Tavily web search wired into LangChain agents driven by **MiniMax-M3** on
-**Nebius Token Factory**. It powers two surfaces in this repo: the batch CSV
-scoring pipeline and the dashboard's "Ask your analyst" / "Research a real
-company" features.
+**Nebius Token Factory**. It powers the batch CSV scoring pipeline and the
+dashboard's "Research a real company" feature.
 
 ## Pieces
 
 | Component | Role |
 |---|---|
 | `app.py` | Batch pipeline: supplier names → risk scores → CSV/JSONL rows |
-| `analyst.py` | Free-text Q&A: one question → cited report (used by "Ask your analyst") |
 | `schema.py` | Pydantic score schema, CSV header order, level derivation, row/reasoning builders |
-| `app/api/analyst/route.ts` | Next.js route: spawns `analyst.py`, returns `{answer}` |
 | `app/api/research/route.ts` | Next.js route: spawns `app.py --json`, returns a dashboard `Supplier` |
 | `lib/supplier-data.ts` | DuckDB union of dataset CSV + `output/suppliers.csv` (`RSCH_` ids) |
 
@@ -62,18 +59,10 @@ python app.py [--json] [--jobs N] [--criteria-jobs M] "Supplier" [...]
 - The original single deep-agent run + one big structured-extraction call
   took ~75–90s/supplier. Splitting research *and* scoring per criteria
   group, each in one model chain, cut it to ~30s.
-- `deepagents` (`create_deep_agent`) is still used for the free-text
-  analyst path where open-ended planning pays off; the focused criteria
-  tasks use plain ReAct agents — fewer model turns, same tools.
+- The focused criteria tasks use plain `create_react_agent` — fewer model
+  turns than a full `deepagents` run, same tools.
 - `invoke_until_text` retries when MiniMax leaks raw `]<]minimax[>`
   tool-call markup as the final message.
-
-## Process: ask-the-analyst (`analyst.py`)
-
-Single deep agent (`create_deep_agent` + Tavily) answers a free-text
-question wrapped in a procurement-analyst prompt; returns the report text.
-The Next.js sheet calls `POST /api/analyst` → spawns the script → JSON
-answer.
 
 ## Process: research dialog (`app/api/research`)
 
