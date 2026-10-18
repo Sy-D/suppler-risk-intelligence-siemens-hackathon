@@ -260,27 +260,33 @@ def last_report_text(result: dict) -> str | None:
     return None
 
 
+def progress(label: str, text: str) -> None:
+    """Emit one live progress line for the API route / CLI (stderr only)."""
+    print(f"PROGRESS|{label}|{text}", file=sys.stderr, flush=True)
+
+
 def _progress_handler_class():
     from langchain_core.callbacks import BaseCallbackHandler
 
     class ProgressHandler(BaseCallbackHandler):
-        """Logs each tool call to stderr as `PROGRESS|label|action` so the API
-        route can stream live progress without polluting stdout."""
+        """Relays each tool call as a short, user-readable progress line."""
 
         def __init__(self, label: str):
             self.label = label
 
-        def _log(self, text: str) -> None:
-            print(f"PROGRESS|{self.label}|{text}", file=sys.stderr, flush=True)
-
         def on_tool_start(self, serialized, input_str, **_kwargs) -> None:
-            name = (
-                serialized.get("name", "tool") if isinstance(serialized, dict) else "tool"
+            query = None
+            try:
+                query = json.loads(input_str).get("query")
+            except (json.JSONDecodeError, AttributeError):
+                query = None
+            progress(
+                self.label,
+                f"searching: {query}" if query else "gathering information",
             )
-            self._log(f"{name}: {input_str[:160]}")
 
         def on_tool_end(self, output, **_kwargs) -> None:
-            self._log("search results received")
+            progress(self.label, "reading sources")
 
     return ProgressHandler
 
@@ -313,11 +319,13 @@ def _combined_brief(supplier: str, criteria_jobs: int = 4) -> str:
 
     def brief(group: tuple[str, str]) -> str:
         title, focus = group
+        progress(title, "started")
         text = invoke_until_text(
             build_react_agent(),
             CRITERIA_PROMPT.format(supplier=supplier, focus=focus),
             label=title,
         )
+        progress(title, "done")
         return f"## {title}\n{text}"
 
     with ThreadPoolExecutor(max_workers=min(criteria_jobs, len(CRITERIA_GROUPS))) as pool:
@@ -353,7 +361,9 @@ def _group_scores(supplier: str, title: str, focus: str) -> dict:
             focus=focus,
             spec="\n".join(_field_spec(f) for f in fields),
         )
+        progress(title, "started")
         text = invoke_until_text(build_react_agent(), prompt, label=title)
+        progress(title, "done")
         data = _extract_json(text)
         return {
             f: _FIELD_MODELS.get(f, ScoredDimension).model_validate(data[f])

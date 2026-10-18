@@ -227,7 +227,10 @@ export function AnalystSheet({
         question: text,
       })) {
         if (event.type === "progress") {
-          setActivity((prev) => [...prev.slice(-19), event.text])
+          setActivity((prev) => [
+            ...prev.slice(-19),
+            event.text.replace("|", " — "),
+          ])
         } else if (event.type === "result") {
           // SAFETY: the route emits {answer} as its result payload.
           const payload = event.payload as { answer?: string }
@@ -380,7 +383,10 @@ export function ResearchDialog({
     try {
       for await (const event of streamAgent("/api/research", { name })) {
         if (event.type === "progress") {
-          setActivity((prev) => [...prev.slice(-19), event.text])
+          setActivity((prev) => [
+            ...prev.slice(-19),
+            event.text.replace("|", " — "),
+          ])
         } else if (event.type === "result") {
           // SAFETY: the route emits {supplier, reasoning} as its result payload.
           const payload = event.payload as {
