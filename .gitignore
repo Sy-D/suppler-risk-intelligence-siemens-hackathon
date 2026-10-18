@@ -45,3 +45,4 @@ next-env.d.ts
 /.claude/
 
 scripts/__pycache__
+data/suppliers.duckdb

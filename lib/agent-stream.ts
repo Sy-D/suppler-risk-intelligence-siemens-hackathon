@@ -4,7 +4,12 @@ import { spawn } from "node:child_process"
 import path from "node:path"
 
 const AGENT_DIR = path.join(process.cwd(), "deep-research-agent")
-const PYTHON_BIN = process.env.ANALYST_PYTHON ?? ".venv/bin/python"
+// Absolute path: callers spawn scripts with different cwds (the analyst
+// script runs from the repo root, the research agent from AGENT_DIR), so a
+// relative interpreter path would resolve differently per route.
+const PYTHON_BIN = path.resolve(
+  process.env.ANALYST_PYTHON ?? path.join(AGENT_DIR, ".venv/bin/python")
+)
 const TIMEOUT_MS = 5 * 60 * 1000
 
 export type JsonValue =
