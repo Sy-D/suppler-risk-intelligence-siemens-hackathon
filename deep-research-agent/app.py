@@ -22,7 +22,9 @@ import json
 import os
 import re
 import sys
+import ast
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Sequence
@@ -232,11 +234,31 @@ def build_model(max_tokens: int | None = None):
     )
 
 
+_SEARCH_LOCK = threading.Lock()
+_SEARCH_MIN_INTERVAL = 1.5
+_last_search_at = [0.0]
+
+
 def build_tools() -> list:
     _require_env("TAVILY_API_KEY")
+    from langchain_core.tools import tool
     from langchain_tavily import TavilySearch
 
-    return [TavilySearch(max_results=5, search_depth="advanced")]
+    search = TavilySearch(max_results=5, search_depth="advanced")
+
+    @tool("tavily_search")
+    def tavily_search(query: str) -> str:
+        """Search the web for supplier-risk evidence."""
+        # Serialize searches across all worker threads and pace them so
+        # parallel criteria agents cannot stampede the Tavily rate limit.
+        with _SEARCH_LOCK:
+            wait = _SEARCH_MIN_INTERVAL - (time.monotonic() - _last_search_at[0])
+            if wait > 0:
+                time.sleep(wait)
+            _last_search_at[0] = time.monotonic()
+        return search.invoke({"query": query})
+
+    return [tavily_search]
 
 
 def build_agent(model=None, tools=None):
@@ -289,11 +311,14 @@ def _progress_handler_class():
             self.label = label
 
         def on_tool_start(self, serialized, input_str, **_kwargs) -> None:
-            query = None
             try:
-                query = json.loads(input_str).get("query")
-            except (json.JSONDecodeError, AttributeError):
-                query = None
+                parsed = json.loads(input_str)
+            except (json.JSONDecodeError, TypeError):
+                try:
+                    parsed = ast.literal_eval(input_str)
+                except (ValueError, SyntaxError):
+                    parsed = {}
+            query = parsed.get("query") if isinstance(parsed, dict) else None
             progress(
                 self.label,
                 f"searching: {query}" if query else "gathering information",
@@ -302,12 +327,23 @@ def _progress_handler_class():
         def on_tool_end(self, output, **_kwargs) -> None:
             progress(self.label, "reading sources")
 
+        def on_tool_error(self, error, **_kwargs) -> None:
+            progress(self.label, "search failed — retrying")
+
     return ProgressHandler
+
+
+_RECURSION_LIMIT = 12
 
 
 def invoke_until_text(agent, prompt: str, attempts: int = 3, label: str = "agent") -> str:
     """Invoke the agent until it produces a clean final text (retry on markup leaks)."""
-    config = {"callbacks": [_progress_handler_class()(label)]}
+    config = {
+        "callbacks": [_progress_handler_class()(label)],
+        # Cap agent turns so a rate-limited search loop fails fast into the
+        # group's fallback instead of burning slow model calls retrying.
+        "recursion_limit": _RECURSION_LIMIT,
+    }
     for _ in range(attempts):
         text = last_report_text(
             agent.invoke(
@@ -319,7 +355,7 @@ def invoke_until_text(agent, prompt: str, attempts: int = 3, label: str = "agent
     raise RuntimeError("the agent returned no usable answer — retry the run")
 
 
-def research(supplier: str, agent=None, criteria_jobs: int = 4) -> str:
+def research(supplier: str, agent=None, criteria_jobs: int = 2) -> str:
     """Research one supplier: a focused sub-agent per criteria group runs in
     parallel and their briefs are combined into one evidence pack."""
     if agent is not None:
@@ -328,7 +364,7 @@ def research(supplier: str, agent=None, criteria_jobs: int = 4) -> str:
     return _combined_brief(supplier, criteria_jobs)
 
 
-def _combined_brief(supplier: str, criteria_jobs: int = 4) -> str:
+def _combined_brief(supplier: str, criteria_jobs: int = 2) -> str:
     """Run a criteria sub-agent per group in parallel and join the briefs."""
 
     def brief(group: tuple[str, str]) -> str:
@@ -404,7 +440,7 @@ def resolve_name(name: str, model=None) -> str:
         return name
 
 
-def score_supplier(supplier: str, criteria_jobs: int = 4) -> SupplierRiskScores:
+def score_supplier(supplier: str, criteria_jobs: int = 2) -> SupplierRiskScores:
     """Run all criteria pipelines in parallel and merge into the full schema."""
     with ThreadPoolExecutor(max_workers=min(criteria_jobs, len(CRITERIA_GROUPS))) as pool:
         groups = list(pool.map(lambda g: _group_scores(supplier, *g), CRITERIA_GROUPS))
@@ -439,7 +475,7 @@ def process_supplier(
     supplier_id: str | None = None,
     csv_path: Path = OUTPUT_CSV,
     jsonl_path: Path = REASONING_JSONL,
-    criteria_jobs: int = 4,
+    criteria_jobs: int = 2,
     update: bool = False,
     agent=None,
     model=None,
@@ -463,7 +499,7 @@ def process_supplier(
 
 def _parse_flags(argv: list[str]) -> tuple[bool, int, int, str | None, list[str]]:
     """Split CLI args into (json_mode, jobs, criteria_jobs, update_id, names)."""
-    json_mode, jobs, criteria_jobs, update_id, suppliers = False, 2, 4, None, []
+    json_mode, jobs, criteria_jobs, update_id, suppliers = False, 2, 2, None, []
     it = iter(argv)
     for arg in it:
         if arg == "--json":
