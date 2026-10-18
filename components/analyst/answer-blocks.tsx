@@ -6,6 +6,7 @@ import {
   answerBlock,
   analystAnswer,
   type AnalystAnswer,
+  type AnswerBlock,
 } from "@/lib/analyst/schema"
 import {
   CalloutBlock,
@@ -64,11 +65,31 @@ export function AnswerBlocks({
   const parsed = analystAnswer.safeParse(answer)
   if (!parsed.success)
     return <p className="text-sm whitespace-pre-line">{answer.summary}</p>
-  const ctx: BlockContext = { suppliers, onOpenProfile }
   return (
     <div className="space-y-3">
       <p className="text-sm leading-relaxed">{parsed.data.summary}</p>
-      {parsed.data.blocks.map((block, i) => (
+      <BlockList
+        blocks={parsed.data.blocks}
+        suppliers={suppliers}
+        onOpenProfile={onOpenProfile}
+      />
+    </div>
+  )
+}
+
+export function BlockList({
+  blocks,
+  suppliers,
+  onOpenProfile,
+}: {
+  blocks: AnswerBlock[]
+  suppliers: Supplier[]
+  onOpenProfile: (supplier: Supplier) => void
+}) {
+  const ctx: BlockContext = { suppliers, onOpenProfile }
+  return (
+    <div className="space-y-3">
+      {blocks.map((block, i) => (
         <div
           key={i}
           className="motion-safe:animate-detail-in"

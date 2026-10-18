@@ -20,12 +20,21 @@ type StreamEvent =
   | { type: "result"; payload: JsonValue }
   | { type: "error"; message: string }
 
-/** Spawn a deep-research-agent script and stream it back as SSE.
+interface StreamOptions {
+  /** Working directory for the script (default: deep-research-agent/). */
+  cwd?: string
+  /** Text written to the script's stdin (it is always closed). */
+  stdin?: string
+}
+
+/** Spawn a Python script and stream it back as SSE.
  * stderr `PROGRESS|label|text` lines become `progress` events; on exit the
- * stdout is mapped through `mapResult` into the final `result` event. */
+ * stdout is mapped through `mapResult` into the final `result` event. Other
+ * stderr output becomes the error message if the script fails. */
 export function agentEventStream(
   scriptArgs: string[],
-  mapResult: (stdout: string) => JsonValue
+  mapResult: (stdout: string) => JsonValue,
+  { cwd = AGENT_DIR, stdin = "" }: StreamOptions = {}
 ): Response {
   const encoder = new TextEncoder()
   const stream = new ReadableStream({
@@ -35,7 +44,8 @@ export function agentEventStream(
           encoder.encode(`data: ${JSON.stringify(payload)}\n\n`)
         )
       let stdout = ""
-      const proc = spawn(PYTHON_BIN, scriptArgs, { cwd: AGENT_DIR })
+      let stderr = ""
+      const proc = spawn(PYTHON_BIN, scriptArgs, { cwd, env: process.env })
       const timer = setTimeout(() => {
         proc.kill()
         send({ type: "error", message: "Research timed out after 5 minutes" })
@@ -47,6 +57,8 @@ export function agentEventStream(
           const trimmed = line.trim()
           if (trimmed.startsWith("PROGRESS|")) {
             send({ type: "progress", text: trimmed.slice(9) })
+          } else if (trimmed) {
+            stderr += `${trimmed}\n`
           }
         }
       })
@@ -55,10 +67,15 @@ export function agentEventStream(
         send({ type: "error", message: error.message })
         controller.close()
       })
+      // Ignore EPIPE if the process exits (or fails to start) early.
+      proc.stdin.on("error", () => {})
+      proc.stdin.end(stdin)
       proc.on("close", (code) => {
         clearTimeout(timer)
         try {
-          if (code !== 0) throw new Error(`agent exited with code ${code}`)
+          if (code !== 0) {
+            throw new Error(stderr.trim() || `agent exited with code ${code}`)
+          }
           send({ type: "result", payload: mapResult(stdout.trim()) })
         } catch (error) {
           send({

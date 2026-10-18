@@ -9,7 +9,6 @@ import {
 import { useState } from "react"
 import Link from "next/link"
 import {
-  ArrowUp,
   BookOpen,
   CheckCircle2,
   Expand,
@@ -21,7 +20,6 @@ import {
   Search,
   Sparkles,
 } from "lucide-react"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -32,13 +30,6 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet"
-import {
   Table,
   TableBody,
   TableCell,
@@ -46,7 +37,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { RiskBadge, riskDimensions } from "@/components/dashboard/risk-badge"
+import { RiskBadge } from "@/components/dashboard/risk-badge"
+import { riskDimensionGroups, riskDimensions } from "@/lib/risk"
 import { streamAgent } from "@/lib/agent-events"
 import { matchSuppliers } from "@/lib/fuzzy-match"
 import type { ResearchJob } from "@/lib/use-research-queue"
@@ -95,6 +87,34 @@ function SourceIcons({ sources }: { sources: string[] }) {
       })}
     </span>
   )
+import { concentrationWarnings } from "@/lib/concentration"
+import type { Supplier } from "@/lib/supplier-data"
+
+export function ConcentrationAlerts({ suppliers }: { suppliers: Supplier[] }) {
+  const warnings = concentrationWarnings(suppliers)
+  if (warnings.length === 0) return null
+  return (
+    <div className="mb-4 space-y-2">
+      {warnings.map((warning) => (
+        <div
+          key={warning.title}
+          className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm"
+        >
+          <span className="mt-1.5 size-2 shrink-0 rounded-full bg-amber-500" />
+          <div>
+            <p className="font-medium">{warning.title}</p>
+            <p className="text-xs text-muted-foreground">{warning.detail}</p>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+interface ColumnInfo {
+  value: string | number
+  reason: string
+  sources: string[]
 }
 
 function StepIcon({ line }: { line: string }) {
@@ -148,7 +168,7 @@ export function ComparisonDialog({
               <DialogDescription>
                 {mode === "compare" ? (
                   <>
-                    <AnimatedNumber value={suppliers.length} /> of 20 suppliers
+                    <AnimatedNumber value={suppliers.length} animate={false} /> of 20 suppliers
                     ·{" "}
                   </>
                 ) : (
@@ -179,7 +199,10 @@ export function ComparisonDialog({
             Select suppliers in the overview to compare their risk profiles.
           </p>
         ) : (
-          <ComparisonTable suppliers={suppliers} />
+          <>
+            <ConcentrationAlerts suppliers={suppliers} />
+            <ComparisonTable suppliers={suppliers} />
+          </>
         )}
         <p className="text-xs text-muted-foreground">
           Source: supplier_risk_dataset.csv plus live web research (RSCH_*
@@ -229,7 +252,7 @@ export function ComparisonTable({ suppliers }: { suppliers: Supplier[] }) {
                     className="text-2xl font-medium tabular-nums motion-safe:animate-detail-in"
                     style={{ animationDelay: `${i * 45}ms` }}
                   >
-                    <AnimatedNumber value={s.risk} respectMotionPreference />
+                    <AnimatedNumber value={s.risk} animate={false} />
                     <span className="text-xs font-normal text-muted-foreground">
                       {" "}
                       / 100
@@ -237,21 +260,33 @@ export function ComparisonTable({ suppliers }: { suppliers: Supplier[] }) {
                   </TableCell>
                 ))}
               </TableRow>
-              {riskDimensions.map((dimension) => (
-                <TableRow key={dimension.key}>
-                  <TableCell className="sticky left-0 z-10 bg-popover text-muted-foreground">
-                    {dimension.label}
-                  </TableCell>
-                  {suppliers.map((s, i) => (
+              {riskDimensionGroups.map((group) => (
+                <>
+                  <TableRow key={group.label}>
                     <TableCell
-                      key={s.id}
-                      className="motion-safe:animate-detail-in"
-                      style={{ animationDelay: `${i * 45}ms` }}
+                      colSpan={suppliers.length + 1}
+                      className="sticky left-0 z-10 bg-muted/40 pt-4 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground"
                     >
-                      <RiskBar value={s[dimension.key]} enter />
+                      {group.label}
                     </TableCell>
+                  </TableRow>
+                  {group.dimensions.map((dimension) => (
+                    <TableRow key={dimension.key}>
+                      <TableCell className="sticky left-0 z-10 bg-popover pl-6 text-muted-foreground">
+                        {dimension.label}
+                      </TableCell>
+                      {suppliers.map((s) => {
+                        // SAFETY: every dimension key names a numeric score field on Supplier.
+                        const value = s[dimension.key] as number
+                        return (
+                          <TableCell key={s.id}>
+                            <RiskBar value={value} />
+                          </TableCell>
+                        )
+                      })}
+                    </TableRow>
                   ))}
-                </TableRow>
+                </>
               ))}
               <TableRow>
                 <TableCell className="sticky left-0 z-10 bg-popover text-muted-foreground">
@@ -270,6 +305,7 @@ export function ComparisonTable({ suppliers }: { suppliers: Supplier[] }) {
                         value={s.delivery}
                         format={deliveryFormat}
                         suffix="%"
+                        animate={false}
                       />
                     )}
                   </TableCell>
@@ -291,6 +327,7 @@ export function ComparisonTable({ suppliers }: { suppliers: Supplier[] }) {
                       <AnimatedNumber
                         value={s.exposure}
                         format={exposureFormat}
+                        animate={false}
                       />
                     )}
                   </TableCell>
@@ -298,152 +335,6 @@ export function ComparisonTable({ suppliers }: { suppliers: Supplier[] }) {
               </TableRow>
             </TableBody>
           </Table>
-  )
-}
-
-export function AnalystSheet({
-  open,
-  onOpenChange,
-}: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-}) {
-  const [question, setQuestion] = useState("")
-  const [answer, setAnswer] = useState("")
-  const [loading, setLoading] = useState(false)
-  const [activity, setActivity] = useState<string[]>([])
-  const prompts = [
-    "What are the biggest current risk signals for Continental AG?",
-    "Which recent events raise the risk of sourcing semiconductors from Nexperia?",
-  ]
-  async function ask(text: string) {
-    setQuestion(text)
-    setLoading(true)
-    setAnswer("")
-    setActivity([])
-    try {
-      for await (const event of streamAgent("/api/analyst", {
-        question: text,
-      })) {
-        if (event.type === "progress") {
-          setActivity((prev) => [
-            ...prev.slice(-19),
-            event.text.replace("|", " — "),
-          ])
-        } else if (event.type === "result") {
-          // SAFETY: the route emits {answer} as its result payload.
-          const payload = event.payload as { answer?: string }
-          setAnswer(payload.answer ?? "")
-        } else if (event.type === "error") {
-          throw new Error(event.message)
-        }
-      }
-    } catch (error) {
-      setAnswer(
-        error instanceof Error
-          ? error.message
-          : "The research agent could not be reached."
-      )
-    } finally {
-      setLoading(false)
-    }
-  }
-  return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-full sm:max-w-lg">
-        <SheetHeader className="border-b pr-14">
-          <SheetTitle className="flex items-center gap-2">
-            <Sparkles className="size-4" />
-            Ask your analyst
-          </SheetTitle>
-          <SheetDescription>
-            Explore supplier risks with answers grounded in live web research.
-          </SheetDescription>
-        </SheetHeader>
-        <div className="flex-1 space-y-6 overflow-y-auto px-6 py-2">
-          <Badge variant="secondary">
-            Live research · deep agent + web search
-          </Badge>
-          <div className="space-y-2">
-            {prompts.map((prompt) => (
-              <Button
-                key={prompt}
-                variant="outline"
-                className="h-auto min-h-12 w-full justify-start py-3 text-left whitespace-normal"
-                disabled={loading}
-                onClick={() => ask(prompt)}
-              >
-                {prompt}
-              </Button>
-            ))}
-          </div>
-          {loading ? (
-            <div
-              className="rounded-2xl bg-muted p-5 text-sm leading-relaxed"
-              role="status"
-            >
-              <div className="flex items-start gap-3">
-                <LoaderCircle className="mt-0.5 size-4 shrink-0 animate-spin" />
-                <p>
-                  Researching the web… the analyst plans, searches and reads
-                  sources, so a run takes a minute or two.
-                </p>
-              </div>
-              <ActivityLog lines={activity} />
-            </div>
-          ) : answer ? (
-            <div
-              className="rounded-2xl bg-muted p-5 text-sm leading-relaxed whitespace-pre-line"
-              role="status"
-            >
-              {answer}
-            </div>
-          ) : (
-            <div className="py-10 text-center">
-              <Sparkles className="mx-auto mb-4 size-7 text-muted-foreground" />
-              <h3 className="font-medium">Ask about a real supplier.</h3>
-              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                The analyst researches public sources and returns a cited risk
-                answer.
-              </p>
-            </div>
-          )}
-        </div>
-        <form
-          className="space-y-3 border-t p-6"
-          onSubmit={(event) => {
-            event.preventDefault()
-            if (question.trim() && !loading) ask(question)
-          }}
-        >
-          <label htmlFor="analyst-question" className="text-xs font-medium">
-            Your question
-          </label>
-          <div className="flex gap-2">
-            <Input
-              id="analyst-question"
-              className="h-11 min-w-0 flex-1 text-base md:text-sm"
-              value={question}
-              onChange={(event) => setQuestion(event.target.value)}
-              placeholder="Ask about a supplier…"
-            />
-            <Button
-              type="submit"
-              size="icon-lg"
-              className="size-11"
-              aria-label="Ask question"
-              disabled={!question.trim() || loading}
-            >
-              <ArrowUp />
-            </Button>
-          </div>
-          <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-            <FileText className="size-3" />
-            deep research agent · Nebius Token Factory + Tavily
-          </p>
-        </form>
-      </SheetContent>
-    </Sheet>
   )
 }
 
