@@ -7,10 +7,12 @@ import {
   exposureFormat,
 } from "./animated-number"
 import { useState } from "react"
+import Link from "next/link"
 import {
   ArrowUp,
   BookOpen,
   CheckCircle2,
+  Expand,
   FileText,
   Globe,
   LoaderCircle,
@@ -95,27 +97,61 @@ export function ComparisonDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[85svh] overflow-y-auto sm:max-w-5xl">
         <DialogHeader>
-          <DialogTitle>
-            {mode === "profile"
-              ? "Supplier risk profile"
-              : "Compare your shortlist"}
-          </DialogTitle>
-          <DialogDescription>
-            {mode === "compare" ? (
-              <>
-                <AnimatedNumber value={suppliers.length} /> of 20 suppliers ·{" "}
-              </>
-            ) : (
-              ""
+          <div className="flex items-start justify-between gap-4 pr-10">
+            <div className="space-y-2">
+              <DialogTitle>
+                {mode === "profile"
+                  ? "Supplier risk profile"
+                  : "Compare your shortlist"}
+              </DialogTitle>
+              <DialogDescription>
+                {mode === "compare" ? (
+                  <>
+                    <AnimatedNumber value={suppliers.length} /> of 20 suppliers
+                    ·{" "}
+                  </>
+                ) : (
+                  ""
+                )}
+                Risk scores: 0 = no risk, 100 = maximum risk.
+              </DialogDescription>
+            </div>
+            {suppliers.length > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                nativeButton={false}
+                render={
+                  <Link
+                    href={`/compare?ids=${suppliers.map((s) => s.id).join(",")}`}
+                  />
+                }
+              >
+                <Expand data-icon="inline-start" />
+                Full view
+              </Button>
             )}
-            Risk scores: 0 = no risk, 100 = maximum risk.
-          </DialogDescription>
+          </div>
         </DialogHeader>
         {suppliers.length === 0 ? (
           <p className="py-12 text-center text-muted-foreground">
             Select suppliers in the overview to compare their risk profiles.
           </p>
         ) : (
+          <ComparisonTable suppliers={suppliers} />
+        )}
+        <p className="text-xs text-muted-foreground">
+          Source: supplier_risk_dataset.csv plus live web research (RSCH_*
+          rows). Higher delivery ratings are better. Risk weights and component
+          suitability are not provided.
+        </p>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+export function ComparisonTable({ suppliers }: { suppliers: Supplier[] }) {
+  return (
           <Table>
             <TableHeader>
               <TableRow>
@@ -221,14 +257,6 @@ export function ComparisonDialog({
               </TableRow>
             </TableBody>
           </Table>
-        )}
-        <p className="text-xs text-muted-foreground">
-          Source: supplier_risk_dataset.csv plus live web research (RSCH_*
-          rows). Higher delivery ratings are better. Risk weights and component
-          suitability are not provided.
-        </p>
-      </DialogContent>
-    </Dialog>
   )
 }
 
