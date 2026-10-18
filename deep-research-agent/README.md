@@ -43,13 +43,21 @@ export TAVILY_API_KEY="your-tavily-key"
 ## Run
 
 ```bash
-python app.py                                    # default supplier-risk question
-python app.py "Research the financial health and sanctions exposure of <supplier>."
+python app.py "Robert Bosch GmbH"                # one supplier
+python app.py "Bosch" "Continental" "Schaeffler" # several suppliers, one row each
 ```
 
-A successful run prints the final report on one line prefixed exactly with
-`Deep research report:` and exits with code 0. A run makes several model calls
-and can take a minute or two — that is expected.
+For each supplier the deep agent researches risk signals via Tavily, then a
+second model call maps the evidence onto the risk schema (see `schema.py`).
+Each run appends one row per supplier to `output/suppliers.csv` and prints the
+row as a table. `*_Level` columns and `Total_Risk_Index` are derived in code
+(see `level_for`) so scoring stays consistent. The internal ERP columns
+(`Purchase Order Volume (EUR)`, `Order Change Rate`, `Supplier Delivery
+Rating`, `Order Confirmation Rate`) are left empty — they must come from an
+ERP export, not web research.
+
+A run makes several model calls and can take a minute or two per supplier —
+that is expected.
 
 ## Verify
 
