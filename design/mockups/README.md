@@ -8,4 +8,4 @@ The interface uses the original `b5JgvMPyq` shadcn preset: `base-maia`, Zinc, Ge
 
 `supplier-workspace.html` is a self-contained, static visual snapshot of the current application. Open the running app for NumberFlow, filtering and other interactions. Earlier design directions are archived in `archive/initial-design-directions.html`.
 
-The analyst panel supports deterministic CSV-based example answers. External company research is a workflow preview. No language model or web research service is connected yet.
+The static snapshot predates the live agent integration. In the running application, "Ask your analyst" and "Research a real company" call the deep research agent (see [docs/ARCHITECTURE.md](../../docs/ARCHITECTURE.md)).

@@ -76,43 +76,55 @@ CRITERIA_GROUPS = [
     (
         "Compliance & governance",
         "sanctions-list hits, regulatory investigations, antitrust/compliance "
-        "violations, ownership structure, PEP exposure, governance controversies",
+        "violations, ownership structure, PEP exposure, governance controversies. "
+        "Prefer official sources: OFAC SDN list, EU consolidated sanctions "
+        "list, BaFin/FATF, DOJ/SEC actions, court records, company registers",
     ),
     (
         "Financial & market",
         "financial health, credit rating, earnings and debt signals, market "
-        "sentiment, analyst views, share-price movement",
+        "sentiment, analyst views, share-price movement. Prefer authoritative "
+        "sources: audited annual reports, S&P/Moody's/Fitch ratings, "
+        "SEC/Bundesanzeiger filings, investor-relations pages",
     ),
     (
         "ESG & environmental",
         "ESG ratings, environmental exposure, climate/deforestation/CBAM "
-        "risks, sustainability report findings",
+        "risks, sustainability report findings. Prefer rating providers and "
+        "primary disclosures: CDP scores, Sustainalytics/MSCI ESG, EcoVadis, "
+        "the company's own sustainability report",
     ),
     (
         "Operations, quality & safety",
         "production disruptions, product recalls and quality defects, safety "
         "incidents, operational resilience, sub-tier supplier visibility, "
-        "supply-chain complexity",
+        "supply-chain complexity. Prefer regulator databases: NHTSA, EU "
+        "Safety Gate/RAPEX recalls, OSHA, FDA, HSE",
     ),
     (
         "Labor",
         "strikes, layoffs, union and works-council disputes, workforce "
-        "stability, labor-law issues",
+        "stability, labor-law issues. Prefer union/works-council "
+        "announcements, company statements and reputable business press",
     ),
     (
         "Cyber security",
         "data breaches, ransomware, security incidents, IT/OT security "
-        "posture, disclosed vulnerabilities",
+        "posture, disclosed vulnerabilities. Prefer breach disclosures, "
+        "CERT advisories, and established security news outlets",
     ),
     (
         "Geopolitical & political",
         "country risk of HQ and key sites, sanctions and export-control "
-        "exposure, political stability, tariffs and trade restrictions",
+        "exposure, political stability, tariffs and trade restrictions. "
+        "Prefer index/institutional sources: World Bank WGI, official "
+        "policy announcements, trade-ministry statements",
     ),
     (
         "Media & external intelligence",
         "adverse media coverage, reputational signals, industry benchmark "
-        "position, external risk-intelligence mentions",
+        "position, external risk-intelligence mentions. Prefer established "
+        "outlets: Reuters, Bloomberg, FT, major national press",
     ),
 ]
 
