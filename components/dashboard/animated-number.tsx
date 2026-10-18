@@ -8,10 +8,22 @@ import NumberFlow, {
 } from "@number-flow/react"
 
 const timing = { duration: 420, easing: "cubic-bezier(0.23, 1, 0.32, 1)" }
-const format = new Intl.NumberFormat("en-GB")
+
+function plainFormat(
+  value: number,
+  format?: Format,
+  prefix?: string,
+  suffix?: string
+) {
+  const text = new Intl.NumberFormat("en-GB", format).format(value)
+  return `${prefix ?? ""}${text}${suffix ?? ""}`
+}
 
 export function AnimatedNumber({
   value,
+  format: numberFormat,
+  prefix,
+  suffix,
   ...props
 }: Omit<NumberFlowProps, "value"> & { value: number }) {
   const [entered, setEntered] = useState(false)
@@ -45,7 +57,7 @@ export function AnimatedNumber({
     }
   }, [visible])
   return (
-    <span ref={ref} className="contents">
+    <span ref={ref}>
       {visible ? (
         <NumberFlow
           locales="en-GB"
@@ -54,11 +66,16 @@ export function AnimatedNumber({
           spinTiming={timing}
           opacityTiming={{ duration: 180, easing: "ease-out" }}
           respectMotionPreference
+          format={numberFormat}
+          prefix={prefix}
+          suffix={suffix}
           {...props}
           value={entered || reducedMotion ? value : 0}
         />
       ) : (
-        <span className="tabular-nums">{format.format(value)}</span>
+        <span className="tabular-nums">
+          {plainFormat(value, numberFormat, prefix, suffix)}
+        </span>
       )}
     </span>
   )
