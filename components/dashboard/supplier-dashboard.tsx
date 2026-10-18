@@ -105,7 +105,16 @@ type WorkspacePanel =
 
 const pageSize = 8
 
-export function SupplierDashboard({ suppliers }: { suppliers: Supplier[] }) {
+export function SupplierDashboard({
+  suppliers: dataset,
+}: {
+  suppliers: Supplier[]
+}) {
+  const [researched, setResearched] = useState<Supplier[]>([])
+  const suppliers = useMemo(() => {
+    const known = new Set(dataset.map((d) => d.id))
+    return [...researched.filter((r) => !known.has(r.id)), ...dataset]
+  }, [researched, dataset])
   const [search, setSearch] = useState("")
   const query = useDeferredValue(search.trim().toLowerCase())
   const [riskFilter, setRiskFilter] = useState("All risk levels")
@@ -769,17 +778,25 @@ export function SupplierDashboard({ suppliers }: { suppliers: Supplier[] }) {
                               <RiskBadge level={supplier.level} />
                             </TableCell>
                             <TableCell className="text-right tabular-nums">
-                              <AnimatedNumber
-                                value={supplier.delivery}
-                                format={deliveryFormat}
-                                suffix="%"
-                              />
+                              {supplier.researched ? (
+                                "—"
+                              ) : (
+                                <AnimatedNumber
+                                  value={supplier.delivery}
+                                  format={deliveryFormat}
+                                  suffix="%"
+                                />
+                              )}
                             </TableCell>
                             <TableCell className="text-right tabular-nums">
-                              <AnimatedNumber
-                                value={supplier.exposure}
-                                format={exposureFormat}
-                              />
+                              {supplier.researched ? (
+                                "—"
+                              ) : (
+                                <AnimatedNumber
+                                  value={supplier.exposure}
+                                  format={exposureFormat}
+                                />
+                              )}
                             </TableCell>
                             <TableCell>
                               <Button
@@ -954,13 +971,19 @@ export function SupplierDashboard({ suppliers }: { suppliers: Supplier[] }) {
           onOpenChange={(open) => {
             if (!open) setPanel({ kind: "none" })
           }}
-          suppliers={suppliers}
-          selected={selected}
         />
         <ResearchDialog
           open={panel.kind === "research"}
           onOpenChange={(open) => {
             if (!open) setPanel({ kind: "none" })
+          }}
+          onResearched={(supplier) => {
+            setResearched((previous) =>
+              previous.some((s) => s.id === supplier.id)
+                ? previous
+                : [supplier, ...previous]
+            )
+            toggleSupplier(supplier.id, true)
           }}
         />
       </SidebarProvider>
