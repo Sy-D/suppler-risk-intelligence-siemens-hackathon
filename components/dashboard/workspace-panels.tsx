@@ -6,7 +6,7 @@ import {
   deliveryFormat,
   exposureFormat,
 } from "./animated-number"
-import { useState } from "react"
+import { Fragment, useState } from "react"
 import Link from "next/link"
 import {
   BookOpen,
@@ -43,6 +43,7 @@ import { streamAgent } from "@/lib/agent-events"
 import { matchSuppliers } from "@/lib/fuzzy-match"
 import type { ResearchJob } from "@/lib/use-research-queue"
 import type { Supplier } from "@/lib/supplier-data"
+import { concentrationWarnings } from "@/lib/concentration"
 
 const DERIVED_PREFIXES = [
   "derived from",
@@ -87,8 +88,7 @@ function SourceIcons({ sources }: { sources: string[] }) {
       })}
     </span>
   )
-import { concentrationWarnings } from "@/lib/concentration"
-import type { Supplier } from "@/lib/supplier-data"
+}
 
 export function ConcentrationAlerts({ suppliers }: { suppliers: Supplier[] }) {
   const warnings = concentrationWarnings(suppliers)
@@ -261,8 +261,8 @@ export function ComparisonTable({ suppliers }: { suppliers: Supplier[] }) {
                 ))}
               </TableRow>
               {riskDimensionGroups.map((group) => (
-                <>
-                  <TableRow key={group.label}>
+                <Fragment key={group.label}>
+                  <TableRow>
                     <TableCell
                       colSpan={suppliers.length + 1}
                       className="sticky left-0 z-10 bg-muted/40 pt-4 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground"
@@ -286,7 +286,7 @@ export function ComparisonTable({ suppliers }: { suppliers: Supplier[] }) {
                       })}
                     </TableRow>
                   ))}
-                </>
+                </Fragment>
               ))}
               <TableRow>
                 <TableCell className="sticky left-0 z-10 bg-popover text-muted-foreground">

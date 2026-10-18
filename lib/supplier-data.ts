@@ -126,6 +126,7 @@ const COLUMNS = [
   '"Supplier Delivery Rating"',
   '"Purchase Order Volume (EUR)"',
   '"Sourcing Risk Level"',
+  `'' AS "Last Modified"`,
   ...CONTACT_COLUMNS.map((col) => `NULL AS ${col}`),
 ].join(", ")
 
@@ -157,16 +158,7 @@ async function readSupplierRows() {
          "Supplier Name", Total_Risk_Index, Total_Risk_Index_Level,
          ${SCORE_COLUMNS.join(", ")},
          "Supplier Delivery Rating", "Purchase Order Volume (EUR)",
-         "Sourcing Risk Level", "Last Modified"
-       FROM read_csv('${RESEARCH_CSV}', all_varchar = true)`
-    : ""
-  const result = await conn.runAndReadAll(
-    `SELECT ${COLUMNS}, '' AS "Last Modified"
-     FROM read_csv('${DATASET_CSV}', all_varchar = true)
-     ${research}`
-  )
-  return result.getRowObjects()
-         "Sourcing Risk Level",
+         "Sourcing Risk Level", "Last Modified",
          ${CONTACT_COLUMNS.map((col) => researchContactExpr(col)).join(", ")}
        FROM read_csv('${RESEARCH_CSV}', all_varchar = true) t`
     : ""
