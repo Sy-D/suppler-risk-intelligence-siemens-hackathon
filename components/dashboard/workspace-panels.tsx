@@ -56,6 +56,51 @@ interface ColumnInfo {
   sources: string[]
 }
 
+const DERIVED_PREFIXES = [
+  "derived from",
+  "internal ERP",
+  "auto-assigned",
+  "CLI input",
+  "UTC timestamp",
+]
+
+function domainOf(url: string): string {
+  try {
+    return new URL(url).hostname
+  } catch {
+    return url
+  }
+}
+
+function SourceIcons({ sources }: { sources: string[] }) {
+  if (!sources.length) return null
+  return (
+    <span className="inline-flex translate-y-0.5 items-center gap-1 pl-1 align-baseline">
+      {sources.map((url) => {
+        const domain = domainOf(url)
+        return (
+          <a
+            key={url}
+            href={url}
+            target="_blank"
+            rel="noreferrer"
+            title={domain}
+            aria-label={domain}
+            className="inline-flex opacity-70 transition-opacity hover:opacity-100"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={`https://www.google.com/s2/favicons?domain=${domain}&sz=16`}
+              alt={domain}
+              className="size-3.5 rounded-sm"
+            />
+          </a>
+        )
+      })}
+    </span>
+  )
+}
+
 function StepIcon({ line }: { line: string }) {
   const base = "mt-0.5 size-3.5 shrink-0"
   if (line.endsWith("done"))
@@ -495,7 +540,9 @@ export function ResearchDialog({
 
   const evidence = reasoning
     ? Object.entries(reasoning.columns).filter(
-        ([, info]) => info.sources.length > 0
+        ([, info]) =>
+          info.reason &&
+          !DERIVED_PREFIXES.some((prefix) => info.reason.startsWith(prefix))
       )
     : []
 
@@ -654,18 +701,8 @@ export function ResearchDialog({
                       </p>
                       <p className="mt-0.5 leading-relaxed text-muted-foreground">
                         {info.reason}
+                        <SourceIcons sources={info.sources} />
                       </p>
-                      {info.sources.map((url) => (
-                        <a
-                          key={url}
-                          href={url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="block truncate text-[11px] text-primary underline-offset-2 hover:underline"
-                        >
-                          {url}
-                        </a>
-                      ))}
                     </li>
                   ))}
                 </ul>
