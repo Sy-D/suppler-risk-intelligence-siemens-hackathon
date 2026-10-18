@@ -260,10 +260,40 @@ def last_report_text(result: dict) -> str | None:
     return None
 
 
-def invoke_until_text(agent, prompt: str, attempts: int = 3) -> str:
+def _progress_handler_class():
+    from langchain_core.callbacks import BaseCallbackHandler
+
+    class ProgressHandler(BaseCallbackHandler):
+        """Logs each tool call to stderr as `PROGRESS|label|action` so the API
+        route can stream live progress without polluting stdout."""
+
+        def __init__(self, label: str):
+            self.label = label
+
+        def _log(self, text: str) -> None:
+            print(f"PROGRESS|{self.label}|{text}", file=sys.stderr, flush=True)
+
+        def on_tool_start(self, serialized, input_str, **_kwargs) -> None:
+            name = (
+                serialized.get("name", "tool") if isinstance(serialized, dict) else "tool"
+            )
+            self._log(f"{name}: {input_str[:160]}")
+
+        def on_tool_end(self, output, **_kwargs) -> None:
+            self._log("search results received")
+
+    return ProgressHandler
+
+
+def invoke_until_text(agent, prompt: str, attempts: int = 3, label: str = "agent") -> str:
     """Invoke the agent until it produces a clean final text (retry on markup leaks)."""
+    config = {"callbacks": [_progress_handler_class()(label)]}
     for _ in range(attempts):
-        text = last_report_text(agent.invoke({"messages": [{"role": "user", "content": prompt}]}))
+        text = last_report_text(
+            agent.invoke(
+                {"messages": [{"role": "user", "content": prompt}]}, config=config
+            )
+        )
         if text:
             return text
     raise RuntimeError("the agent returned no usable answer — retry the run")
@@ -286,6 +316,7 @@ def _combined_brief(supplier: str, criteria_jobs: int = 4) -> str:
         text = invoke_until_text(
             build_react_agent(),
             CRITERIA_PROMPT.format(supplier=supplier, focus=focus),
+            label=title,
         )
         return f"## {title}\n{text}"
 
@@ -322,7 +353,7 @@ def _group_scores(supplier: str, title: str, focus: str) -> dict:
             focus=focus,
             spec="\n".join(_field_spec(f) for f in fields),
         )
-        text = invoke_until_text(build_react_agent(), prompt)
+        text = invoke_until_text(build_react_agent(), prompt, label=title)
         data = _extract_json(text)
         return {
             f: _FIELD_MODELS.get(f, ScoredDimension).model_validate(data[f])

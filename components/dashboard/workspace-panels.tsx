@@ -41,7 +41,14 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { RiskBadge, riskDimensions } from "@/components/dashboard/risk-badge"
+import { streamAgent } from "@/lib/agent-events"
 import type { Supplier } from "@/lib/supplier-data"
+
+interface ColumnInfo {
+  value: string | number
+  reason: string
+  sources: string[]
+}
 
 export function ComparisonDialog({
   open,
@@ -195,19 +202,6 @@ export function ComparisonDialog({
   )
 }
 
-async function askAnalyst(question: string): Promise<string> {
-  const response = await fetch("/api/analyst", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ question }),
-  })
-  const data = await response.json()
-  if (!response.ok) {
-    throw new Error(data.error ?? "The research agent failed")
-  }
-  return data.answer
-}
-
 export function AnalystSheet({
   open,
   onOpenChange,
@@ -218,6 +212,7 @@ export function AnalystSheet({
   const [question, setQuestion] = useState("")
   const [answer, setAnswer] = useState("")
   const [loading, setLoading] = useState(false)
+  const [activity, setActivity] = useState<string[]>([])
   const prompts = [
     "What are the biggest current risk signals for Continental AG?",
     "Which recent events raise the risk of sourcing semiconductors from Nexperia?",
@@ -226,8 +221,21 @@ export function AnalystSheet({
     setQuestion(text)
     setLoading(true)
     setAnswer("")
+    setActivity([])
     try {
-      setAnswer(await askAnalyst(text))
+      for await (const event of streamAgent("/api/analyst", {
+        question: text,
+      })) {
+        if (event.type === "progress") {
+          setActivity((prev) => [...prev.slice(-19), event.text])
+        } else if (event.type === "result") {
+          // SAFETY: the route emits {answer} as its result payload.
+          const payload = event.payload as { answer?: string }
+          setAnswer(payload.answer ?? "")
+        } else if (event.type === "error") {
+          throw new Error(event.message)
+        }
+      }
     } catch (error) {
       setAnswer(
         error instanceof Error
@@ -269,14 +277,25 @@ export function AnalystSheet({
           </div>
           {loading ? (
             <div
-              className="flex items-start gap-3 rounded-2xl bg-muted p-5 text-sm leading-relaxed"
+              className="rounded-2xl bg-muted p-5 text-sm leading-relaxed"
               role="status"
             >
-              <LoaderCircle className="mt-0.5 size-4 shrink-0 animate-spin" />
-              <p>
-                Researching the web… the analyst plans, searches and reads
-                sources, so a run takes a minute or two.
-              </p>
+              <div className="flex items-start gap-3">
+                <LoaderCircle className="mt-0.5 size-4 shrink-0 animate-spin" />
+                <p>
+                  Researching the web… the analyst plans, searches and reads
+                  sources, so a run takes a minute or two.
+                </p>
+              </div>
+              {activity.length > 0 && (
+                <ul className="mt-3 max-h-40 space-y-1 overflow-y-auto border-t pt-3 font-mono text-[11px] text-muted-foreground">
+                  {activity.map((line, i) => (
+                    <li key={i} className="truncate">
+                      {line}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           ) : answer ? (
             <div
@@ -347,27 +366,46 @@ export function ResearchDialog({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [result, setResult] = useState<Supplier | null>(null)
+  const [activity, setActivity] = useState<string[]>([])
+  const [reasoning, setReasoning] = useState<{
+    columns: Record<string, ColumnInfo>
+  } | null>(null)
 
   async function run() {
     setLoading(true)
     setError("")
     setResult(null)
+    setReasoning(null)
+    setActivity([])
     try {
-      const response = await fetch("/api/research", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
-      })
-      const data = await response.json()
-      if (!response.ok) throw new Error(data.error ?? "Research failed")
-      setResult(data.supplier)
-      onResearched(data.supplier)
+      for await (const event of streamAgent("/api/research", { name })) {
+        if (event.type === "progress") {
+          setActivity((prev) => [...prev.slice(-19), event.text])
+        } else if (event.type === "result") {
+          // SAFETY: the route emits {supplier, reasoning} as its result payload.
+          const payload = event.payload as {
+            supplier: Supplier
+            reasoning: { columns: Record<string, ColumnInfo> }
+          }
+          setResult(payload.supplier)
+          setReasoning(payload.reasoning)
+          onResearched(payload.supplier)
+        } else if (event.type === "error") {
+          throw new Error(event.message)
+        }
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Research failed")
     } finally {
       setLoading(false)
     }
   }
+
+  const evidence = reasoning
+    ? Object.entries(reasoning.columns).filter(
+        ([, info]) => info.sources.length > 0
+      )
+    : []
 
   const topDimensions = result
     ? [...riskDimensions].sort((a, b) => result[b.key] - result[a.key]).slice(0, 3)
@@ -409,14 +447,25 @@ export function ResearchDialog({
         </form>
         {loading ? (
           <div
-            className="flex items-start gap-3 rounded-2xl bg-muted p-5 text-sm leading-relaxed"
+            className="rounded-2xl bg-muted p-5 text-sm leading-relaxed"
             role="status"
           >
-            <LoaderCircle className="mt-0.5 size-4 shrink-0 animate-spin" />
-            <p>
-              Researching {name}… the agent plans, searches and reads sources
-              before scoring, so a run takes a minute or two.
-            </p>
+            <div className="flex items-start gap-3">
+              <LoaderCircle className="mt-0.5 size-4 shrink-0 animate-spin" />
+              <p>
+                Researching {name}… {activity.length === 0 &&
+                  "the criteria agents are starting up."}
+              </p>
+            </div>
+            {activity.length > 0 && (
+              <ul className="mt-3 max-h-40 space-y-1 overflow-y-auto border-t pt-3 font-mono text-[11px] text-muted-foreground">
+                {activity.map((line, i) => (
+                  <li key={i} className="truncate">
+                    {line}
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         ) : null}
         {error ? (
@@ -452,6 +501,34 @@ export function ResearchDialog({
                 </div>
               ))}
             </div>
+            {evidence.length > 0 && (
+              <div className="border-t pt-3">
+                <p className="mb-2 text-xs font-medium">Evidence & sources</p>
+                <ul className="max-h-56 space-y-3 overflow-y-auto pr-1">
+                  {evidence.map(([column, info]) => (
+                    <li key={column} className="text-xs">
+                      <p className="font-medium">
+                        {column} = {String(info.value)}
+                      </p>
+                      <p className="mt-0.5 leading-relaxed text-muted-foreground">
+                        {info.reason}
+                      </p>
+                      {info.sources.map((url) => (
+                        <a
+                          key={url}
+                          href={url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="block truncate text-[11px] text-primary underline-offset-2 hover:underline"
+                        >
+                          {url}
+                        </a>
+                      ))}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
               <Globe className="size-3" />
               Added to the supplier list and selected for comparison. Internal
