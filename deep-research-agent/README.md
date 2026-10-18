@@ -29,8 +29,8 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Copy `.env.example` to `.env` and fill in both keys — `app.py` loads it
-automatically (already exported variables win). Never
+Copy `.env.example` to `.env` and fill in both keys — `app.py` and
+`analyst.py` load it automatically (already exported variables win). Never
 commit real keys. Alternatively, export them in your shell:
 
 ```bash
@@ -72,10 +72,20 @@ ERP export, not web research.
 A run makes several model calls and can take a minute or two per supplier —
 that is expected.
 
-The Next.js dashboard calls the pipeline via `app/api/research/route.ts`
-("Research a real company" dialog), which spawns
-`deep-research-agent/.venv/bin/python app.py --json`. Override the
-interpreter with `ANALYST_PYTHON` if needed.
+## Ask-the-analyst mode
+
+`analyst.py` answers a free-text question with a sourced report instead of the
+CSV pipeline, and loads `.env` itself:
+
+```bash
+python analyst.py "What are the biggest current risk signals for Continental AG?"
+```
+
+The Next.js dashboard calls this via `app/api/analyst/route.ts` ("Ask your
+analyst" button), which spawns `deep-research-agent/.venv/bin/python
+analyst.py`. The research dialog uses `app/api/research/route.ts`, which
+spawns `app.py --json`. Override the interpreter with `ANALYST_PYTHON` if
+needed.
 
 ## Verify
 
