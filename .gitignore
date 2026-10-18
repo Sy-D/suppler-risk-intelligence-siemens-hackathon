@@ -1,5 +1,6 @@
 # dependencies
 /node_modules
+.venv/
 /.pnp
 .pnp.*
 .yarn/*
@@ -11,6 +12,7 @@
 # testing
 /coverage
 
+/data
 # next.js
 /.next/
 /out/
@@ -38,3 +40,5 @@ pnpm-debug.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+scripts/__pycache__
