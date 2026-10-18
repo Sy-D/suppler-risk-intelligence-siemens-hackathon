@@ -183,7 +183,7 @@ export function ComparisonDialog({
   )
 }
 
-function answerQuestion(
+export function answerQuestion(
   question: string,
   suppliers: Supplier[],
   selected: Supplier[]

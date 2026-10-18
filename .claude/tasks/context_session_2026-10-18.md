@@ -28,7 +28,21 @@ Siehe `.claude/tasks/001_numberflow-motion-polish.md`.
 - Kein `pnpm dev` starten — Server läuft bereits.
 
 ## Ergebnis (2026-10-18)
-Plan 001 komplett umgesetzt und verifiziert. Wichtigster Befund: NumberFlow war
+Plan 001 komplett umgesetzt, verifiziert, committed (971bb90) und per HTTPS
+gepusht (SSH-Key fehlt, gh-Token genutzt, keine Config-Änderung).
+
+Branch `feat/type-anywhere-chat`: Plan 002 umgesetzt — CommandSearch-Overlay
+(type anywhere / Cmd+K) + ChatDock (Enter wandert Input nach unten, wird
+AI-Chat mit answerQuestion). Getestet im Browser. Noch NICHT committed.
+Nächster Schritt laut research_component-factory.md: AnalystAnswer-Schema +
+Component-Registry (P1–P3), Antworten rendern dann strukturierte Blöcke
+statt Plaintext — sowohl im Dock als auch im AnalystSheet.
+
+Update: Plan 003 (Component Factory P1–P3) umgesetzt — lib/analyst/schema.ts +
+compose.ts, components/analyst/blocks.tsx + answer-blocks.tsx, Dock rendert
+strukturierte Antworten mit klickbaren Supplier-Chips. Echter Schwaibold-Post
+vom User eingepflegt in research_component-factory.md. Alles auf
+feat/type-anywhere-chat, uncommitted. Wichtigster Befund: NumberFlow war
 bereits überall gewrapped — das Problem war Wahrnehmbarkeit (420 ms beim Mount).
 Fix: Card-Spin auf 720 ms expo-out verlängert, mehr Zahlen gewrapped, Chart-Dots
 mit Links→Rechts-Stagger-Entrance (rAF im Canvas), Row-Click-Auswahl mit

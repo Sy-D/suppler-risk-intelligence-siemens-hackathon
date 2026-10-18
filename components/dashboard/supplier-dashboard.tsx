@@ -1,6 +1,6 @@
 "use client"
 
-import { useDeferredValue, useMemo, useState } from "react"
+import { useDeferredValue, useEffect, useMemo, useState } from "react"
 import { NumberFlowGroup } from "@number-flow/react"
 import { useTheme } from "next-themes"
 import {
@@ -72,10 +72,11 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 import { RiskLandscape } from "@/components/dashboard/risk-landscape"
 import { euro, RiskBadge } from "@/components/dashboard/risk-badge"
 import {
-  AnalystSheet,
   ComparisonDialog,
   ResearchDialog,
 } from "@/components/dashboard/workspace-panels"
+import { CommandSearch } from "./command-search"
+import { ChatDock } from "./chat-dock"
 import {
   AnimatedNumber,
   deliveryFormat,
@@ -98,7 +99,6 @@ type SortKey = "name" | "risk" | "level" | "delivery" | "exposure"
 type SortState = { key: SortKey; direction: "asc" | "desc" } | null
 type WorkspacePanel =
   | { kind: "none" }
-  | { kind: "analyst" }
   | { kind: "compare" }
   | { kind: "profile"; supplier: Supplier }
   | { kind: "research" }
@@ -120,7 +120,35 @@ export function SupplierDashboard({ suppliers }: { suppliers: Supplier[] }) {
   const [selectedIds, setSelectedIds] = useState(() => new Set<string>())
   const [panel, setPanel] = useState<WorkspacePanel>({ kind: "none" })
   const [notice, setNotice] = useState("")
+  const [overlaySeed, setOverlaySeed] = useState<string | null>(null)
+  const [chatSeed, setChatSeed] = useState<string | null>(null)
   const { resolvedTheme, setTheme } = useTheme()
+
+  useEffect(() => {
+    function onType(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault()
+        setOverlaySeed("")
+        return
+      }
+      if (event.metaKey || event.ctrlKey || event.altKey) return
+      if (event.key.length !== 1) return
+      const target = event.target
+      if (
+        target instanceof HTMLElement &&
+        target.closest(
+          "input, textarea, select, [contenteditable=true], [role=dialog]"
+        )
+      )
+        return
+      if (overlaySeed !== null || chatSeed !== null || panel.kind !== "none")
+        return
+      event.preventDefault()
+      setOverlaySeed(event.key)
+    }
+    document.addEventListener("keydown", onType)
+    return () => document.removeEventListener("keydown", onType)
+  }, [overlaySeed, chatSeed, panel.kind])
 
   const filtered = useMemo(
     () =>
@@ -427,7 +455,7 @@ export function SupplierDashboard({ suppliers }: { suppliers: Supplier[] }) {
                   final shortlist.
                 </p>
               </div>
-              <Button size="lg" onClick={() => setPanel({ kind: "analyst" })}>
+              <Button size="lg" onClick={() => setChatSeed("")}>
                 <Sparkles data-icon="inline-start" />
                 Ask your analyst
               </Button>
@@ -949,13 +977,27 @@ export function SupplierDashboard({ suppliers }: { suppliers: Supplier[] }) {
           }}
           suppliers={panel.kind === "profile" ? [panel.supplier] : selected}
         />
-        <AnalystSheet
-          open={panel.kind === "analyst"}
-          onOpenChange={(open) => {
-            if (!open) setPanel({ kind: "none" })
+        <CommandSearch
+          open={overlaySeed !== null}
+          seed={overlaySeed ?? ""}
+          suppliers={suppliers}
+          onPick={(supplier) => {
+            setActiveSupplier(supplier)
+            setOverlaySeed(null)
           }}
+          onAsk={(query) => {
+            setOverlaySeed(null)
+            setChatSeed(query)
+          }}
+          onClose={() => setOverlaySeed(null)}
+        />
+        <ChatDock
+          open={chatSeed !== null}
+          seed={chatSeed ?? ""}
           suppliers={suppliers}
           selected={selected}
+          onClose={() => setChatSeed(null)}
+          onOpenProfile={setActiveSupplier}
         />
         <ResearchDialog
           open={panel.kind === "research"}
