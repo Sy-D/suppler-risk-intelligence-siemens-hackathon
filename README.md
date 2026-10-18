@@ -1,3 +1,9 @@
+## 🚀 Live Demo
+
+Try the project live in your browser!
+
+**👉 [Launch Live Demo](https://port3000-srkbzjf7nwk48j3.tunnel.applications.uk-south2.nebius.cloud/)**
+
 # Supplier risk intelligence
 
 A Siemens Mobility hackathon project for procurement teams: a dashboard to
