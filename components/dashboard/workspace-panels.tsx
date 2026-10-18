@@ -9,9 +9,12 @@ import {
 import { useState } from "react"
 import {
   ArrowUp,
+  BookOpen,
+  CheckCircle2,
   FileText,
   Globe,
   LoaderCircle,
+  Play,
   Search,
   Sparkles,
 } from "lucide-react"
@@ -48,6 +51,32 @@ interface ColumnInfo {
   value: string | number
   reason: string
   sources: string[]
+}
+
+function StepIcon({ line }: { line: string }) {
+  const base = "mt-0.5 size-3.5 shrink-0"
+  if (line.endsWith("done"))
+    return <CheckCircle2 className={`${base} text-emerald-500`} />
+  if (line.endsWith("started")) return <Play className={`${base} text-primary`} />
+  if (line.includes("searching"))
+    return <Search className={`${base} text-muted-foreground`} />
+  if (line.includes("reading"))
+    return <BookOpen className={`${base} text-muted-foreground`} />
+  return <Sparkles className={`${base} text-muted-foreground`} />
+}
+
+export function ActivityLog({ lines }: { lines: string[] }) {
+  if (lines.length === 0) return null
+  return (
+    <ul className="mt-3 max-h-40 space-y-1.5 overflow-y-auto border-t pt-3 font-mono text-[11px] text-muted-foreground">
+      {lines.map((line, i) => (
+        <li key={i} className="flex items-start gap-1.5">
+          <StepIcon line={line} />
+          <span className="min-w-0 truncate">{line}</span>
+        </li>
+      ))}
+    </ul>
+  )
 }
 
 export function ComparisonDialog({
@@ -290,15 +319,7 @@ export function AnalystSheet({
                   sources, so a run takes a minute or two.
                 </p>
               </div>
-              {activity.length > 0 && (
-                <ul className="mt-3 max-h-40 space-y-1 overflow-y-auto border-t pt-3 font-mono text-[11px] text-muted-foreground">
-                  {activity.map((line, i) => (
-                    <li key={i} className="truncate">
-                      {line}
-                    </li>
-                  ))}
-                </ul>
-              )}
+              <ActivityLog lines={activity} />
             </div>
           ) : answer ? (
             <div
@@ -463,15 +484,7 @@ export function ResearchDialog({
                   "the criteria agents are starting up."}
               </p>
             </div>
-            {activity.length > 0 && (
-              <ul className="mt-3 max-h-40 space-y-1 overflow-y-auto border-t pt-3 font-mono text-[11px] text-muted-foreground">
-                {activity.map((line, i) => (
-                  <li key={i} className="truncate">
-                    {line}
-                  </li>
-                ))}
-              </ul>
-            )}
+            <ActivityLog lines={activity} />
           </div>
         ) : null}
         {error ? (
