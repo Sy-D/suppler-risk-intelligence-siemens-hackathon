@@ -39,7 +39,7 @@ DEFAULT_MODEL = "MiniMaxAI/MiniMax-M3"
 DEFAULT_SUPPLIERS = ["Robert Bosch GmbH"]
 OUTPUT_CSV = Path("output/suppliers.csv")
 REASONING_JSONL = Path("output/suppliers_reasoning.jsonl")
-ENV_FILE = Path(__file__).resolve().parent / ".env"
+ENV_FILE = Path(__file__).resolve().parent.parent / ".env"  # repo root .env
 
 
 def load_env_file(path: Path = ENV_FILE) -> None:
