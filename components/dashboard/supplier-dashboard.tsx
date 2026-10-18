@@ -1,8 +1,10 @@
 "use client"
 
-import { useDeferredValue, useMemo, useState } from "react"
+import { useRouter } from "next/navigation"
+import { useDeferredValue, useEffect, useMemo, useState } from "react"
 import { NumberFlowGroup } from "@number-flow/react"
 import { useTheme } from "next-themes"
+import type { BorderBeamColorVariant } from "border-beam"
 import {
   ArrowDown,
   ArrowUp,
@@ -13,7 +15,6 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
-  CircleHelp,
   FileText,
   GitCompareArrows,
   LayoutDashboard,
@@ -72,10 +73,11 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 import { RiskLandscape } from "@/components/dashboard/risk-landscape"
 import { euro, RiskBadge } from "@/components/dashboard/risk-badge"
 import {
-  AnalystSheet,
   ComparisonDialog,
   ResearchDialog,
 } from "@/components/dashboard/workspace-panels"
+import { CommandSearch } from "./command-search"
+import { ChatDock } from "./chat-dock"
 import {
   AnimatedNumber,
   deliveryFormat,
@@ -98,7 +100,6 @@ type SortKey = "name" | "risk" | "level" | "delivery" | "exposure"
 type SortState = { key: SortKey; direction: "asc" | "desc" } | null
 type WorkspacePanel =
   | { kind: "none" }
-  | { kind: "analyst" }
   | { kind: "compare" }
   | { kind: "profile"; supplier: Supplier }
   | { kind: "research" }
@@ -129,7 +130,41 @@ export function SupplierDashboard({
   const [selectedIds, setSelectedIds] = useState(() => new Set<string>())
   const [panel, setPanel] = useState<WorkspacePanel>({ kind: "none" })
   const [notice, setNotice] = useState("")
+  const [overlaySeed, setOverlaySeed] = useState<string | null>(null)
+  const [chatSeed, setChatSeed] = useState<string | null>(null)
   const { resolvedTheme, setTheme } = useTheme()
+  const router = useRouter()
+
+  useEffect(() => {
+    if (selectedIds.size === 0) return
+    router.prefetch(`/compare?ids=${[...selectedIds].join(",")}`)
+  }, [selectedIds, router])
+
+  useEffect(() => {
+    function onType(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault()
+        setOverlaySeed("")
+        return
+      }
+      if (event.metaKey || event.ctrlKey || event.altKey) return
+      if (event.key.length !== 1) return
+      const target = event.target
+      if (
+        target instanceof HTMLElement &&
+        target.closest(
+          "input, textarea, select, [contenteditable=true], [role=dialog]"
+        )
+      )
+        return
+      if (overlaySeed !== null || chatSeed !== null || panel.kind !== "none")
+        return
+      event.preventDefault()
+      setOverlaySeed(event.key)
+    }
+    document.addEventListener("keydown", onType)
+    return () => document.removeEventListener("keydown", onType)
+  }, [overlaySeed, chatSeed, panel.kind])
 
   const filtered = useMemo(
     () =>
@@ -235,6 +270,26 @@ export function SupplierDashboard({
     setChartFilters(defaultFilters)
   }
 
+  function selectArea(ids: string[]) {
+    setSelectedIds((previous) => {
+      const next = new Set(previous)
+      let added = 0
+      for (const id of ids) {
+        if (next.size >= 20) break
+        if (!next.has(id)) {
+          next.add(id)
+          added += 1
+        }
+      }
+      setNotice(
+        next.size >= 20 && added < ids.length
+          ? `${added} of ${ids.length} suppliers added — the comparison cap is 20.`
+          : `${added} suppliers selected from the marked area.`
+      )
+      return next
+    })
+  }
+
   function toggleSupplier(id: string, checked: boolean) {
     if (checked && selectedIds.size >= 20) {
       setNotice(
@@ -285,8 +340,8 @@ export function SupplierDashboard({
           Skip to dashboard
         </a>
         <Sidebar variant="inset" collapsible="icon">
-          <SidebarHeader className="p-4 group-data-[collapsible=icon]:p-2">
-            <div className="flex items-center gap-3 overflow-hidden py-2">
+          <SidebarHeader className="p-4 group-data-[collapsible=icon]:p-0">
+            <div className="flex items-center gap-3 overflow-hidden py-2 group-data-[collapsible=icon]:justify-center">
               <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground">
                 <Building2 className="size-5" />
               </div>
@@ -314,18 +369,6 @@ export function SupplierDashboard({
                       <LayoutDashboard />
                       <span>Overview</span>
                     </SidebarMenuButton>
-                  </SidebarMenuItem>
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      tooltip="Suppliers"
-                      render={<a href="#suppliers" />}
-                    >
-                      <Building2 />
-                      <span>Suppliers</span>
-                    </SidebarMenuButton>
-                    <SidebarMenuBadge>
-                      <AnimatedNumber value={suppliers.length} />
-                    </SidebarMenuBadge>
                   </SidebarMenuItem>
                   <SidebarMenuItem>
                     <SidebarMenuButton
@@ -387,13 +430,6 @@ export function SupplierDashboard({
               <span className="text-sm">Overview</span>
             </div>
             <div className="flex items-center gap-2">
-              <Badge
-                variant="outline"
-                className="hidden font-normal sm:inline-flex"
-              >
-                <FileText className="size-3" />
-                CSV snapshot
-              </Badge>
               <Button
                 variant="ghost"
                 size="icon-lg"
@@ -405,38 +441,14 @@ export function SupplierDashboard({
                 <Sun className="hidden dark:block" />
                 <Moon className="dark:hidden" />
               </Button>
-              <Button
-                variant="ghost"
-                size="icon-lg"
-                aria-label="About the dataset"
-                onClick={() =>
-                  setNotice(
-                    "One anonymized CSV snapshot. Risk scores run from 0 to 100; lower is better. No historical trends or exact risk weights are provided."
-                  )
-                }
-              >
-                <CircleHelp />
-              </Button>
             </div>
           </header>
           <div
             id="main"
             className="mx-auto flex w-full max-w-[1600px] flex-col gap-7 p-4 sm:p-6 lg:p-8"
           >
-            <div className="flex flex-wrap items-center justify-between gap-5">
-              <div>
-                <p className="mb-2 text-xs text-muted-foreground">
-                  Your supplier landscape
-                </p>
-                <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-                  See the risk. Find the right fit.
-                </h1>
-                <p className="mt-2 text-sm text-muted-foreground">
-                  A clearer view of your supplier portfolio, from first look to
-                  final shortlist.
-                </p>
-              </div>
-              <Button size="lg" onClick={() => setPanel({ kind: "analyst" })}>
+            <div className="flex flex-wrap items-center justify-end gap-5">
+              <Button size="lg" onClick={() => setChatSeed("")}>
                 <Sparkles data-icon="inline-start" />
                 Ask your analyst
               </Button>
@@ -449,6 +461,7 @@ export function SupplierDashboard({
                 <MetricCard
                   label="Suppliers in view"
                   value={summary.count}
+                  beam="ocean"
                   description={
                     selected.length
                       ? "Selected suppliers · chart filters applied"
@@ -460,6 +473,7 @@ export function SupplierDashboard({
                 <MetricCard
                   label="Average risk index"
                   value={summary.average}
+                  beam="forest"
                   decimals={1}
                   suffix=" / 100"
                   description={
@@ -469,6 +483,7 @@ export function SupplierDashboard({
                 <MetricCard
                   label="High & critical risk"
                   value={summary.flagged}
+                  beam="candy"
                   description={
                     <>
                       <AnimatedNumber
@@ -497,6 +512,7 @@ export function SupplierDashboard({
                           : 1)
                   }
                   decimals={2}
+                  beam="gold"
                   prefix="€"
                   suffix={
                     summary.exposure >= 1_000_000_000
@@ -595,7 +611,12 @@ export function SupplierDashboard({
                     <RiskLandscape
                       suppliers={chartSuppliers}
                       activeId={activeSupplier?.id}
-                      onSelect={setActiveSupplier}
+                      onSelect={(supplier) =>
+                        setActiveSupplier((current) =>
+                          current?.id === supplier.id ? null : supplier
+                        )
+                      }
+                      onSelectArea={selectArea}
                     />
                     {chartSuppliers.length === 0 && (
                       <p className="py-4 text-center text-sm text-muted-foreground">
@@ -668,6 +689,18 @@ export function SupplierDashboard({
                           <X />
                         </Button>
                       )}
+                      {selected.length > 0 && (
+                        <Button
+                          variant="ghost"
+                          className="h-10"
+                          onClick={() => {
+                            setSelectedIds(new Set())
+                            setNotice("")
+                          }}
+                        >
+                          Deselect all
+                        </Button>
+                      )}
                     </div>
                     <SupplierFiltersControl
                       value={tableFilters}
@@ -681,9 +714,32 @@ export function SupplierDashboard({
                       <TableHeader>
                         <TableRow>
                           <TableHead className="w-10">
-                            <span className="sr-only">
-                              Select for comparison
-                            </span>
+                            <Checkbox
+                              aria-label="Select all suppliers on this page"
+                              checked={
+                                visible.length > 0 &&
+                                visible.every((s) => selectedIds.has(s.id))
+                              }
+                              indeterminate={
+                                !visible.every((s) => selectedIds.has(s.id)) &&
+                                visible.some((s) => selectedIds.has(s.id))
+                              }
+                              onCheckedChange={(checked) => {
+                                setNotice("")
+                                setSelectedIds((previous) => {
+                                  const next = new Set(previous)
+                                  if (checked) {
+                                    for (const s of visible) {
+                                      if (next.size >= 20) break
+                                      next.add(s.id)
+                                    }
+                                  } else {
+                                    for (const s of visible) next.delete(s.id)
+                                  }
+                                  return next
+                                })
+                              }}
+                            />
                           </TableHead>
                           {(
                             [
@@ -879,6 +935,43 @@ export function SupplierDashboard({
                     </div>
                   </CardFooter>
                 </Card>
+                <div className="sticky bottom-4 z-20 flex flex-wrap items-center justify-between gap-4 rounded-2xl border bg-card/95 px-5 py-4 text-card-foreground shadow-sm backdrop-blur-sm">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-secondary">
+                      <GitCompareArrows className="size-4" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium">
+                        <AnimatedNumber value={selected.length} /> of 20
+                        suppliers selected
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Compare risk profiles, delivery and financial exposure.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="ghost"
+                      className="h-10"
+                      disabled={!selected.length}
+                      onClick={() => {
+                        setSelectedIds(new Set())
+                        setNotice("")
+                      }}
+                    >
+                      Clear
+                    </Button>
+                    <Button
+                      size="lg"
+                      disabled={!selected.length}
+                      onClick={() => setPanel({ kind: "compare" })}
+                    >
+                      Compare suppliers
+                      <ArrowRight data-icon="inline-end" />
+                    </Button>
+                  </div>
+                </div>
               </div>
               <SupplierDetail
                 supplier={activeSupplier}
@@ -894,43 +987,6 @@ export function SupplierDashboard({
                     )
                 }}
               />
-            </div>
-            <div className="sticky bottom-4 z-20 flex flex-wrap items-center justify-between gap-4 rounded-2xl border bg-card/95 px-5 py-4 text-card-foreground shadow-sm backdrop-blur-sm">
-              <div className="flex min-w-0 items-center gap-3">
-                <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-secondary">
-                  <GitCompareArrows className="size-4" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium">
-                    <AnimatedNumber value={selected.length} /> of 20 suppliers
-                    selected
-                  </p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Compare risk profiles, delivery and financial exposure.
-                  </p>
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <Button
-                  variant="ghost"
-                  className="h-10"
-                  disabled={!selected.length}
-                  onClick={() => {
-                    setSelectedIds(new Set())
-                    setNotice("")
-                  }}
-                >
-                  Clear
-                </Button>
-                <Button
-                  size="lg"
-                  disabled={!selected.length}
-                  onClick={() => setPanel({ kind: "compare" })}
-                >
-                  Compare suppliers
-                  <ArrowRight data-icon="inline-end" />
-                </Button>
-              </div>
             </div>
             <p className="flex items-start gap-2 text-xs leading-relaxed text-muted-foreground">
               <Check className="mt-0.5 size-3.5 shrink-0" />
@@ -966,16 +1022,37 @@ export function SupplierDashboard({
           }}
           suppliers={panel.kind === "profile" ? [panel.supplier] : selected}
         />
-        <AnalystSheet
-          open={panel.kind === "analyst"}
-          onOpenChange={(open) => {
-            if (!open) setPanel({ kind: "none" })
+        <CommandSearch
+          open={overlaySeed !== null}
+          seed={overlaySeed ?? ""}
+          suppliers={suppliers}
+          onPick={(supplier) => {
+            setActiveSupplier(supplier)
+            setOverlaySeed(null)
           }}
+          onAsk={(query) => {
+            setOverlaySeed(null)
+            setChatSeed(query)
+          }}
+          onClose={() => setOverlaySeed(null)}
+        />
+        <ChatDock
+          open={chatSeed !== null}
+          seed={chatSeed ?? ""}
+          suppliers={suppliers}
+          selected={selected}
+          onClose={() => setChatSeed(null)}
+          onOpenProfile={setActiveSupplier}
         />
         <ResearchDialog
           open={panel.kind === "research"}
           onOpenChange={(open) => {
             if (!open) setPanel({ kind: "none" })
+          }}
+          suppliers={suppliers}
+          onSelectExisting={(supplier) => {
+            toggleSupplier(supplier.id, true)
+            setPanel({ kind: "none" })
           }}
           onResearched={(supplier) => {
             setResearched((previous) =>
@@ -991,10 +1068,22 @@ export function SupplierDashboard({
   )
 }
 
+const auroraColors = {
+  colorful: { from: "#38bdf8", to: "#e879f9" },
+  mono: { from: "#94a3b8", to: "#e2e8f0" },
+  ocean: { from: "#38bdf8", to: "#8b5cf6" },
+  sunset: { from: "#f59e0b", to: "#ef4444" },
+  forest: { from: "#34d399", to: "#0ea5e9" },
+  candy: { from: "#f472b6", to: "#a855f7" },
+  ice: { from: "#67e8f9", to: "#38bdf8" },
+  gold: { from: "#fbbf24", to: "#fb923c" },
+} satisfies Record<BorderBeamColorVariant, { from: string; to: string }>
+
 function MetricCard({
   label,
   value,
   description,
+  beam,
   decimals = 0,
   prefix,
   suffix,
@@ -1002,12 +1091,15 @@ function MetricCard({
   label: string
   value: number
   description: React.ReactNode
+  beam: BorderBeamColorVariant
   decimals?: number
   prefix?: string
   suffix?: string
 }) {
+  const { from, to } = auroraColors[beam]
   return (
-    <Card size="sm">
+    <div className="group/aurora relative">
+      <Card size="sm" className="relative">
       <CardHeader>
         <CardDescription className="text-xs">{label}</CardDescription>
       </CardHeader>
@@ -1037,6 +1129,18 @@ function MetricCard({
         </div>
         <p className="mt-1 text-xs text-muted-foreground">{description}</p>
       </CardContent>
-    </Card>
+      </Card>
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 overflow-hidden rounded-2xl"
+      >
+        <div
+          className="absolute -right-24 -bottom-28 size-56 rounded-full opacity-45 blur-2xl transition-all duration-500 ease-out motion-safe:animate-aurora group-hover/aurora:-right-14 group-hover/aurora:-bottom-20 group-hover/aurora:opacity-100"
+          style={{
+            background: `radial-gradient(closest-side, ${from}, ${to} 45%, transparent 75%)`,
+          }}
+        />
+      </div>
+    </div>
   )
 }

@@ -91,11 +91,17 @@ async function readSupplierRows() {
          "Sourcing Risk Level"
        FROM read_csv('${RESEARCH_CSV}', all_varchar = true)`
     : ""
-  const result = await conn.runAndReadAll(
-    `SELECT ${COLUMNS} FROM read_csv('${DATASET_CSV}', all_varchar = true)
-     ${research}`
-  )
-  return result.getRowObjects()
+  const dataset = `SELECT ${COLUMNS} FROM read_csv('${DATASET_CSV}', all_varchar = true)`
+  try {
+    const result = await conn.runAndReadAll(`${dataset} ${research}`)
+    return result.getRowObjects()
+  } catch (error) {
+    if (!research) throw error
+    // A malformed research CSV must not take down the whole dashboard.
+    console.error("Skipping unreadable research CSV:", error)
+    const result = await conn.runAndReadAll(dataset)
+    return result.getRowObjects()
+  }
 }
 
 export const getSuppliers = cache(async () => {

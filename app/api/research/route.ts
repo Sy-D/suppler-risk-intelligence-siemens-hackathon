@@ -1,32 +1,4 @@
-import { spawn } from "node:child_process"
-import path from "node:path"
-
-const AGENT_DIR = path.join(process.cwd(), "deep-research-agent")
-const PYTHON_BIN = process.env.ANALYST_PYTHON ?? ".venv/bin/python"
-const TIMEOUT_MS = 5 * 60 * 1000
-
-function runResearch(name: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const proc = spawn(PYTHON_BIN, ["app.py", "--json", name], { cwd: AGENT_DIR })
-    let stdout = ""
-    let stderr = ""
-    const timer = setTimeout(() => {
-      proc.kill()
-      reject(new Error("Research timed out after 5 minutes"))
-    }, TIMEOUT_MS)
-    proc.stdout.on("data", (chunk) => (stdout += chunk))
-    proc.stderr.on("data", (chunk) => (stderr += chunk))
-    proc.on("error", (error) => {
-      clearTimeout(timer)
-      reject(error)
-    })
-    proc.on("close", (code) => {
-      clearTimeout(timer)
-      if (code === 0) resolve(stdout.trim())
-      else reject(new Error(stderr.trim() || `agent exited with code ${code}`))
-    })
-  })
-}
+import { agentEventStream } from "@/lib/agent-stream"
 
 function toSupplier(row: Record<string, string | number>) {
   return {
@@ -57,20 +29,12 @@ export async function POST(request: Request) {
   if (!name) {
     return Response.json({ error: "Missing supplier name" }, { status: 400 })
   }
-  try {
-    const output = await runResearch(name)
-    const result = JSON.parse(output)
+  return agentEventStream(["app.py", "--json", name], (stdout) => {
+    const result = JSON.parse(stdout)
     const first = result?.suppliers?.[0]
     if (!first?.row) {
-      return Response.json({ error: "Agent returned no row" }, { status: 502 })
+      throw new Error("Agent returned no row")
     }
-    return Response.json({
-      supplier: toSupplier(first.row),
-      reasoning: first.reasoning,
-    })
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Research agent failed"
-    return Response.json({ error: message }, { status: 502 })
-  }
+    return { supplier: toSupplier(first.row), reasoning: first.reasoning }
+  })
 }

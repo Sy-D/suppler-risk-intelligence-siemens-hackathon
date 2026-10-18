@@ -46,7 +46,16 @@ export TAVILY_API_KEY="your-tavily-key"
 ```bash
 python app.py "Robert Bosch GmbH"                # one supplier
 python app.py "Bosch" "Continental" "Schaeffler" # several suppliers, one row each
+python app.py --jobs 4 --criteria-jobs 4 "A" "B" # tune both levels
 ```
+
+There are two levels of parallelism. Per supplier, the research fans out to
+`--criteria-jobs` focused sub-agents — one per criteria group (compliance,
+financial, ESG, operations/quality/safety, labor, cyber, geopolitical, media) —
+which makes a single run much faster than one monolithic agent pass. Across
+suppliers, `--jobs` controls how many run at once. Concurrency is the product
+of the two (default 2 × 4 = 8 concurrent searches) — watch Tavily rate limits
+if you raise it.
 
 For each supplier the deep agent researches risk signals via Tavily, then a
 second model call maps the evidence onto the risk schema (see `schema.py`).
@@ -74,7 +83,9 @@ python analyst.py "What are the biggest current risk signals for Continental AG?
 
 The Next.js dashboard calls this via `app/api/analyst/route.ts` ("Ask your
 analyst" button), which spawns `deep-research-agent/.venv/bin/python
-analyst.py`. Override the interpreter with `ANALYST_PYTHON` if needed.
+analyst.py`. The research dialog uses `app/api/research/route.ts`, which
+spawns `app.py --json`. Override the interpreter with `ANALYST_PYTHON` if
+needed.
 
 ## Verify
 

@@ -1,11 +1,10 @@
-import { spawn } from "node:child_process"
 import { z } from "zod"
+import { agentEventStream } from "@/lib/agent-stream"
+import { answerBlock } from "@/lib/analyst/schema"
 
-// Interpreter and script are configurable via env; paths resolve from the
-// repo root (cwd). Docker sets ANALYST_PYTHON to the system python3.
-const PYTHON_BIN = process.env.ANALYST_PYTHON ?? ".venv/bin/python"
+// The script is configurable via env and resolves from the repo root (cwd).
+// The interpreter comes from ANALYST_PYTHON (see lib/agent-stream.ts).
 const ANALYST_SCRIPT = process.env.ANALYST_SCRIPT ?? "scripts/ask.py"
-const TIMEOUT_MS = 3 * 60 * 1000
 // scripts/ask.py rejects questions longer than this.
 const MAX_QUESTION_CHARS = 500
 const MAX_CONTEXT_CHARS = 4000
@@ -19,45 +18,15 @@ const requestBody = z.object({
     .optional()
     .catch(undefined),
 })
-const analystOutput = z.object({ sql: z.string(), answer: z.string() })
-
-type Turn = z.output<typeof analystOutput>
-type Previous = NonNullable<z.output<typeof requestBody>["previous"]>
-
-function runAnalyst(question: string, previous?: Previous): Promise<Turn> {
-  return new Promise((resolve, reject) => {
-    const proc = spawn(
-      PYTHON_BIN,
-      [ANALYST_SCRIPT, question, "--json", "--context-stdin"],
-      { cwd: process.cwd(), env: process.env }
-    )
-    let stdout = ""
-    let stderr = ""
-    const timer = setTimeout(() => {
-      proc.kill()
-      reject(new Error("Analyst timed out after 3 minutes"))
-    }, TIMEOUT_MS)
-    proc.stdout.on("data", (chunk) => (stdout += chunk))
-    proc.stderr.on("data", (chunk) => (stderr += chunk))
-    proc.on("error", (error) => {
-      clearTimeout(timer)
-      reject(error)
-    })
-    proc.on("close", (code) => {
-      clearTimeout(timer)
-      if (code !== 0) {
-        reject(new Error(stderr.trim() || `analyst exited with code ${code}`))
-        return
-      }
-      try {
-        resolve(analystOutput.parse(JSON.parse(stdout)))
-      } catch {
-        reject(new Error("Analyst returned an unexpected response"))
-      }
-    })
-    proc.stdin.end(previous ? JSON.stringify(previous) : "")
-  })
-}
+const analystOutput = z.object({
+  sql: z.string(),
+  answer: z.string(),
+  // Optional dashboard view; an invalid view is dropped, the answer is kept.
+  render: z
+    .object({ blocks: z.array(answerBlock).min(1).max(8) })
+    .nullable()
+    .catch(null),
+})
 
 export async function POST(request: Request) {
   const body = requestBody.safeParse(
@@ -69,10 +38,10 @@ export async function POST(request: Request) {
   if (!body.success || !question) {
     return Response.json({ error: "Missing question" }, { status: 400 })
   }
-  try {
-    return Response.json(await runAnalyst(question, body.data.previous))
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Analyst failed"
-    return Response.json({ error: message }, { status: 502 })
-  }
+  const { previous } = body.data
+  return agentEventStream(
+    [ANALYST_SCRIPT, question, "--json", "--context-stdin", "--render"],
+    (stdout) => analystOutput.parse(JSON.parse(stdout)),
+    { cwd: process.cwd(), stdin: previous ? JSON.stringify(previous) : "" }
+  )
 }

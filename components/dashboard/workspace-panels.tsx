@@ -1,6 +1,5 @@
 "use client"
 
-import { MarkdownAnswer } from "./markdown-answer"
 import { RiskBar } from "./risk-bar"
 import {
   AnimatedNumber,
@@ -8,16 +7,18 @@ import {
   exposureFormat,
 } from "./animated-number"
 import { useState } from "react"
+import Link from "next/link"
 import {
-  ArrowUp,
+  BookOpen,
+  CheckCircle2,
+  Expand,
   FileText,
   Globe,
   LoaderCircle,
+  Play,
   Search,
   Sparkles,
-  Trash2,
 } from "lucide-react"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -28,13 +29,6 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet"
-import {
   Table,
   TableBody,
   TableCell,
@@ -43,7 +37,41 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { RiskBadge, riskDimensions } from "@/components/dashboard/risk-badge"
+import { streamAgent } from "@/lib/agent-events"
+import { matchSuppliers } from "@/lib/fuzzy-match"
 import type { Supplier } from "@/lib/supplier-data"
+
+interface ColumnInfo {
+  value: string | number
+  reason: string
+  sources: string[]
+}
+
+function StepIcon({ line }: { line: string }) {
+  const base = "mt-0.5 size-3.5 shrink-0"
+  if (line.endsWith("done"))
+    return <CheckCircle2 className={`${base} text-emerald-500`} />
+  if (line.endsWith("started")) return <Play className={`${base} text-primary`} />
+  if (line.includes("searching"))
+    return <Search className={`${base} text-muted-foreground`} />
+  if (line.includes("reading"))
+    return <BookOpen className={`${base} text-muted-foreground`} />
+  return <Sparkles className={`${base} text-muted-foreground`} />
+}
+
+export function ActivityLog({ lines }: { lines: string[] }) {
+  if (lines.length === 0) return null
+  return (
+    <ul className="mt-3 max-h-40 space-y-1.5 overflow-y-auto border-t pt-3 font-mono text-[11px] text-muted-foreground">
+      {lines.map((line, i) => (
+        <li key={i} className="flex items-start gap-1.5">
+          <StepIcon line={line} />
+          <span className="min-w-0 truncate">{line}</span>
+        </li>
+      ))}
+    </ul>
+  )
+}
 
 export function ComparisonDialog({
   open,
@@ -60,27 +88,61 @@ export function ComparisonDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[85svh] overflow-y-auto sm:max-w-5xl">
         <DialogHeader>
-          <DialogTitle>
-            {mode === "profile"
-              ? "Supplier risk profile"
-              : "Compare your shortlist"}
-          </DialogTitle>
-          <DialogDescription>
-            {mode === "compare" ? (
-              <>
-                <AnimatedNumber value={suppliers.length} /> of 20 suppliers ·{" "}
-              </>
-            ) : (
-              ""
+          <div className="flex items-start justify-between gap-4 pr-10">
+            <div className="space-y-2">
+              <DialogTitle>
+                {mode === "profile"
+                  ? "Supplier risk profile"
+                  : "Compare your shortlist"}
+              </DialogTitle>
+              <DialogDescription>
+                {mode === "compare" ? (
+                  <>
+                    <AnimatedNumber value={suppliers.length} /> of 20 suppliers
+                    ·{" "}
+                  </>
+                ) : (
+                  ""
+                )}
+                Risk scores: 0 = no risk, 100 = maximum risk.
+              </DialogDescription>
+            </div>
+            {suppliers.length > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                nativeButton={false}
+                render={
+                  <Link
+                    href={`/compare?ids=${suppliers.map((s) => s.id).join(",")}`}
+                  />
+                }
+              >
+                <Expand data-icon="inline-start" />
+                Full view
+              </Button>
             )}
-            Risk scores: 0 = no risk, 100 = maximum risk.
-          </DialogDescription>
+          </div>
         </DialogHeader>
         {suppliers.length === 0 ? (
           <p className="py-12 text-center text-muted-foreground">
             Select suppliers in the overview to compare their risk profiles.
           </p>
         ) : (
+          <ComparisonTable suppliers={suppliers} />
+        )}
+        <p className="text-xs text-muted-foreground">
+          Source: supplier_risk_dataset.csv plus live web research (RSCH_*
+          rows). Higher delivery ratings are better. Risk weights and component
+          suitability are not provided.
+        </p>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+export function ComparisonTable({ suppliers }: { suppliers: Supplier[] }) {
+  return (
           <Table>
             <TableHeader>
               <TableRow>
@@ -186,211 +248,6 @@ export function ComparisonDialog({
               </TableRow>
             </TableBody>
           </Table>
-        )}
-        <p className="text-xs text-muted-foreground">
-          Source: supplier_risk_dataset.csv plus live web research (RSCH_*
-          rows). Higher delivery ratings are better. Risk weights and component
-          suitability are not provided.
-        </p>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-type AnalystTurn = {
-  question: string
-  answer: string
-  sql: string
-  failed?: boolean
-}
-
-async function askAnalyst(
-  question: string,
-  previous?: AnalystTurn
-): Promise<{ answer: string; sql: string }> {
-  const response = await fetch("/api/analyst", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      question,
-      previous: previous && {
-        question: previous.question,
-        sql: previous.sql,
-        answer: previous.answer,
-      },
-    }),
-  })
-  const data = await response.json()
-  if (!response.ok) {
-    throw new Error(data.error ?? "The analyst failed")
-  }
-  return { answer: data.answer, sql: data.sql }
-}
-
-export function AnalystSheet({
-  open,
-  onOpenChange,
-}: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-}) {
-  const [question, setQuestion] = useState("")
-  const [turns, setTurns] = useState<AnalystTurn[]>([])
-  const [pending, setPending] = useState("")
-  const loading = pending !== ""
-  const prompts = [
-    "Which 5 suppliers have the highest total risk?",
-    "How many suppliers are rated Critical, and what is their average financial health score?",
-  ]
-  async function ask(text: string) {
-    // The last successful turn gives the model context for follow-ups.
-    const previous = turns.findLast((turn) => !turn.failed)
-    setPending(text)
-    setQuestion("")
-    try {
-      const result = await askAnalyst(text, previous)
-      setTurns((all) => [...all, { question: text, ...result }])
-    } catch (error) {
-      setTurns((all) => [
-        ...all,
-        {
-          question: text,
-          sql: "",
-          failed: true,
-          answer:
-            error instanceof Error
-              ? error.message
-              : "The analyst could not be reached.",
-        },
-      ])
-    } finally {
-      setPending("")
-    }
-  }
-  return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-full sm:max-w-lg">
-        <SheetHeader className="border-b pr-14">
-          <SheetTitle className="flex items-center gap-2">
-            <Sparkles className="size-4" />
-            Ask your analyst
-          </SheetTitle>
-          <SheetDescription>
-            Ask questions about the supplier dataset in plain language.
-          </SheetDescription>
-        </SheetHeader>
-        <div className="flex-1 space-y-6 overflow-y-auto px-6 py-2">
-          <div className="flex items-center justify-between gap-2">
-            <Badge variant="secondary">Text-to-SQL · supplier dataset</Badge>
-            {turns.length > 0 && (
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={loading}
-                onClick={() => {
-                  setTurns([])
-                  setQuestion("")
-                }}
-              >
-                <Trash2 data-icon="inline-start" />
-                Clear chat
-              </Button>
-            )}
-          </div>
-          {turns.length === 0 && !loading && (
-            <div className="space-y-2">
-              {prompts.map((prompt) => (
-                <Button
-                  key={prompt}
-                  variant="outline"
-                  className="h-auto min-h-12 w-full justify-start py-3 text-left whitespace-normal"
-                  onClick={() => ask(prompt)}
-                >
-                  {prompt}
-                </Button>
-              ))}
-            </div>
-          )}
-          {turns.map((turn, index) => (
-            <div key={index} className="space-y-2">
-              <p className="ml-auto w-fit max-w-[85%] rounded-2xl bg-primary px-4 py-2 text-sm text-primary-foreground">
-                {turn.question}
-              </p>
-              {turn.failed ? (
-                <div className="rounded-2xl bg-destructive/10 p-5 text-sm leading-relaxed whitespace-pre-line text-destructive">
-                  {turn.answer}
-                </div>
-              ) : (
-                <div className="rounded-2xl bg-muted p-5 text-sm leading-relaxed">
-                  <MarkdownAnswer>{turn.answer}</MarkdownAnswer>
-                </div>
-              )}
-            </div>
-          ))}
-          {loading ? (
-            <div className="space-y-2">
-              <p className="ml-auto w-fit max-w-[85%] rounded-2xl bg-primary px-4 py-2 text-sm text-primary-foreground">
-                {pending}
-              </p>
-              <div
-                className="flex items-start gap-3 rounded-2xl bg-muted p-5 text-sm leading-relaxed"
-                role="status"
-              >
-                <LoaderCircle className="mt-0.5 size-4 shrink-0 animate-spin" />
-                <p>
-                  Querying the dataset… the analyst writes SQL, runs it and
-                  summarises the results.
-                </p>
-              </div>
-            </div>
-          ) : turns.length > 0 ? null : (
-            <div className="py-10 text-center">
-              <Sparkles className="mx-auto mb-4 size-7 text-muted-foreground" />
-              <h3 className="font-medium">Ask about your suppliers.</h3>
-              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                The analyst turns your question into a query over the supplier
-                dataset and explains the results.
-              </p>
-            </div>
-          )}
-        </div>
-        <form
-          className="space-y-3 border-t p-6"
-          onSubmit={(event) => {
-            event.preventDefault()
-            if (question.trim() && !loading) ask(question)
-          }}
-        >
-          <label htmlFor="analyst-question" className="text-xs font-medium">
-            Your question
-          </label>
-          <div className="flex gap-2">
-            <Input
-              id="analyst-question"
-              className="h-11 min-w-0 flex-1 text-base md:text-sm"
-              value={question}
-              onChange={(event) => setQuestion(event.target.value)}
-              placeholder={
-                turns.length ? "Ask a follow-up…" : "Ask about a supplier…"
-              }
-            />
-            <Button
-              type="submit"
-              size="icon-lg"
-              className="size-11"
-              aria-label="Ask question"
-              disabled={!question.trim() || loading}
-            >
-              <ArrowUp />
-            </Button>
-          </div>
-          <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-            <FileText className="size-3" />
-            DuckDB + Nebius Token Factory
-          </p>
-        </form>
-      </SheetContent>
-    </Sheet>
   )
 }
 
@@ -398,36 +255,94 @@ export function ResearchDialog({
   open,
   onOpenChange,
   onResearched,
+  onSelectExisting,
+  suppliers,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   onResearched: (supplier: Supplier) => void
+  onSelectExisting: (supplier: Supplier) => void
+  suppliers: Supplier[]
 }) {
   const [name, setName] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [result, setResult] = useState<Supplier | null>(null)
+  const [activity, setActivity] = useState<string[]>([])
+  const [reasoning, setReasoning] = useState<{
+    columns: Record<string, ColumnInfo>
+  } | null>(null)
+  const [matches, setMatches] = useState<Supplier[] | null>(null)
+  const [candidate, setCandidate] = useState<string | null>(null)
 
-  async function run() {
-    setLoading(true)
-    setError("")
-    setResult(null)
+  async function checkFirst() {
+    const hits = matchSuppliers(name, suppliers)
+    if (hits.length) {
+      setMatches(hits)
+      return
+    }
     try {
-      const response = await fetch("/api/research", {
+      const response = await fetch("/api/resolve", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name }),
       })
       const data = await response.json()
-      if (!response.ok) throw new Error(data.error ?? "Research failed")
-      setResult(data.supplier)
-      onResearched(data.supplier)
+      const canonical = String(data.canonical ?? "")
+        .trim()
+      if (canonical && canonical.toLowerCase() !== name.trim().toLowerCase()) {
+        setCandidate(canonical)
+        return
+      }
+    } catch {
+      // resolver unreachable — proceed with the name as typed
+    }
+    run()
+  }
+
+  async function run(override?: string) {
+    const target = override ?? name
+    setMatches(null)
+    setCandidate(null)
+    setLoading(true)
+    setError("")
+    setResult(null)
+    setReasoning(null)
+    setActivity([])
+    try {
+      for await (const event of streamAgent("/api/research", {
+        name: target,
+      })) {
+        if (event.type === "progress") {
+          setActivity((prev) => [
+            ...prev.slice(-19),
+            event.text.replace("|", " — "),
+          ])
+        } else if (event.type === "result") {
+          // SAFETY: the route emits {supplier, reasoning} as its result payload.
+          const payload = event.payload as {
+            supplier: Supplier
+            reasoning: { columns: Record<string, ColumnInfo> }
+          }
+          setResult(payload.supplier)
+          setReasoning(payload.reasoning)
+          onResearched(payload.supplier)
+        } else if (event.type === "error") {
+          throw new Error(event.message)
+        }
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Research failed")
     } finally {
       setLoading(false)
     }
   }
+
+  const evidence = reasoning
+    ? Object.entries(reasoning.columns).filter(
+        ([, info]) => info.sources.length > 0
+      )
+    : []
 
   const topDimensions = result
     ? [...riskDimensions].sort((a, b) => result[b.key] - result[a.key]).slice(0, 3)
@@ -448,14 +363,14 @@ export function ResearchDialog({
           className="flex gap-2"
           onSubmit={(event) => {
             event.preventDefault()
-            if (name.trim() && !loading) run()
+            if (name.trim() && !loading) checkFirst()
           }}
         >
           <Input
             className="h-11 min-w-0 flex-1 text-base md:text-sm"
             value={name}
             onChange={(event) => setName(event.target.value)}
-            placeholder="Company name, e.g. Continental AG"
+            placeholder="Company name or ID, e.g. Continental AG / SUPP_00018"
             disabled={loading}
           />
           <Button
@@ -467,16 +382,77 @@ export function ResearchDialog({
             Research
           </Button>
         </form>
+        {matches ? (
+          <div className="space-y-2 rounded-2xl bg-muted p-4">
+            <p className="text-xs font-medium">
+              Already in your dataset — pick a match to select it, or research
+              anyway.
+            </p>
+            {matches.map((supplier) => (
+              <button
+                key={supplier.id}
+                type="button"
+                className="flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2 text-left hover:bg-background"
+                onClick={() => onSelectExisting(supplier)}
+              >
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-medium">
+                    {supplier.name}
+                  </span>
+                  <span className="font-mono text-[11px] text-muted-foreground">
+                    {supplier.id}
+                  </span>
+                </span>
+                <RiskBadge level={supplier.level} />
+              </button>
+            ))}
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => run()}
+            >
+              Not a match — research anyway
+            </Button>
+          </div>
+        ) : null}
+        {candidate ? (
+          <div className="space-y-3 rounded-2xl bg-muted p-4">
+            <p className="text-sm">
+              Did you mean <span className="font-semibold">{candidate}</span>?
+            </p>
+            <div className="flex gap-2">
+              <Button
+                className="flex-1"
+                onClick={() => {
+                  setName(candidate)
+                  run(candidate)
+                }}
+              >
+                Research {candidate}
+              </Button>
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => run()}
+              >
+                Research “{name}”
+              </Button>
+            </div>
+          </div>
+        ) : null}
         {loading ? (
           <div
-            className="flex items-start gap-3 rounded-2xl bg-muted p-5 text-sm leading-relaxed"
+            className="rounded-2xl bg-muted p-5 text-sm leading-relaxed"
             role="status"
           >
-            <LoaderCircle className="mt-0.5 size-4 shrink-0 animate-spin" />
-            <p>
-              Researching {name}… the agent plans, searches and reads sources
-              before scoring, so a run takes a minute or two.
-            </p>
+            <div className="flex items-start gap-3">
+              <LoaderCircle className="mt-0.5 size-4 shrink-0 animate-spin" />
+              <p>
+                Researching {result?.name ?? name}… {activity.length === 0 &&
+                  "the criteria agents are starting up."}
+              </p>
+            </div>
+            <ActivityLog lines={activity} />
           </div>
         ) : null}
         {error ? (
@@ -512,6 +488,34 @@ export function ResearchDialog({
                 </div>
               ))}
             </div>
+            {evidence.length > 0 && (
+              <div className="border-t pt-3">
+                <p className="mb-2 text-xs font-medium">Evidence & sources</p>
+                <ul className="max-h-56 space-y-3 overflow-y-auto pr-1">
+                  {evidence.map(([column, info]) => (
+                    <li key={column} className="text-xs">
+                      <p className="font-medium">
+                        {column} = {String(info.value)}
+                      </p>
+                      <p className="mt-0.5 leading-relaxed text-muted-foreground">
+                        {info.reason}
+                      </p>
+                      {info.sources.map((url) => (
+                        <a
+                          key={url}
+                          href={url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="block truncate text-[11px] text-primary underline-offset-2 hover:underline"
+                        >
+                          {url}
+                        </a>
+                      ))}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
               <Globe className="size-3" />
               Added to the supplier list and selected for comparison. Internal
