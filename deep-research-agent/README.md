@@ -46,7 +46,12 @@ export TAVILY_API_KEY="your-tavily-key"
 ```bash
 python app.py "Robert Bosch GmbH"                # one supplier
 python app.py "Bosch" "Continental" "Schaeffler" # several suppliers, one row each
+python app.py --jobs 8 "A" "B" "C" "D"           # up to 8 in parallel (default 4)
 ```
+
+Each supplier is handled by an independent agent worker with its own model and
+Tavily tool, so several suppliers research in parallel — `--jobs` caps
+concurrency (default 4). Watch Tavily rate limits if you raise it.
 
 For each supplier the deep agent researches risk signals via Tavily, then a
 second model call maps the evidence onto the risk schema (see `schema.py`).

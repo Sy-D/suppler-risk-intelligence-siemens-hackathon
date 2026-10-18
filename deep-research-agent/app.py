@@ -7,11 +7,13 @@ Reads credentials from the environment and never prints them:
   TAVILY_API_KEY   - Tavily API key (required, read by the Tavily SDK)
 
 Usage:
-  python app.py ["Supplier Name" ["Another Supplier" ...]]
+  python app.py [--json] [--jobs N] ["Supplier Name" ["Another Supplier" ...]]
 
-For each supplier the agent researches risk signals via web search, then a
-structured-extraction call maps the evidence onto the supplier-risk CSV schema.
-Rows are appended to output/suppliers.csv and printed as a table.
+Each supplier is researched by an independent agent worker (own model + search
+tool) and up to --jobs suppliers run in parallel. For each supplier the agent
+researches risk signals via web search, then a structured-extraction call maps
+the evidence onto the supplier-risk CSV schema. Rows are appended to
+output/suppliers.csv and printed as a table (or emitted as JSON with --json).
 """
 
 from __future__ import annotations
@@ -20,6 +22,8 @@ import json
 import os
 import re
 import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Sequence
 
@@ -171,8 +175,16 @@ def extract_scores(supplier: str, report: str, model=None) -> SupplierRiskScores
         return SupplierRiskScores.model_validate(json.loads(match.group(0)))
 
 
+_WRITE_LOCK = threading.Lock()
+
+
+def _row_count(path: Path) -> int:
+    return sum(1 for _ in path.open()) - 1 if path.exists() else 0
+
+
 def process_supplier(
     supplier: str,
+    supplier_id: str | None = None,
     csv_path: Path = OUTPUT_CSV,
     jsonl_path: Path = REASONING_JSONL,
     agent=None,
@@ -180,19 +192,42 @@ def process_supplier(
 ) -> tuple[dict, dict]:
     report = research(supplier, agent=agent)
     scores = extract_scores(supplier, report, model=model)
-    row = build_row(next_supplier_id(csv_path), supplier, scores)
-    reasoning = build_reasoning(row, scores)
-    append_csv(csv_path, row)
-    append_jsonl(jsonl_path, reasoning)
+    with _WRITE_LOCK:
+        row = build_row(supplier_id or next_supplier_id(csv_path), supplier, scores)
+        reasoning = build_reasoning(row, scores)
+        append_csv(csv_path, row)
+        append_jsonl(jsonl_path, reasoning)
     return row, reasoning
+
+
+def _parse_flags(argv: list[str]) -> tuple[bool, int, list[str]]:
+    """Split CLI args into (json_mode, jobs, supplier names)."""
+    json_mode, jobs, suppliers = False, 4, []
+    it = iter(argv)
+    for arg in it:
+        if arg == "--json":
+            json_mode = True
+        elif arg in ("-j", "--jobs"):
+            jobs = int(next(it, "4"))
+        elif arg.startswith("--jobs="):
+            jobs = int(arg.split("=", 1)[1])
+        else:
+            suppliers.append(arg)
+    return json_mode, max(1, jobs), suppliers
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
-    json_mode = "--json" in argv
-    suppliers = [arg for arg in argv if arg != "--json"] or DEFAULT_SUPPLIERS
+    json_mode, jobs, suppliers = _parse_flags(argv)
+    suppliers = suppliers or DEFAULT_SUPPLIERS
+    # Assign ids up front so parallel workers cannot race on the row count.
+    base = _row_count(OUTPUT_CSV)
+    tasks = [(name, f"SUPP_{base + i + 1:05d}") for i, name in enumerate(suppliers)]
     try:
-        results = [process_supplier(name) for name in suppliers]
+        with ThreadPoolExecutor(max_workers=min(jobs, len(tasks))) as pool:
+            results = list(
+                pool.map(lambda task: process_supplier(task[0], task[1]), tasks)
+            )
     except RuntimeError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
