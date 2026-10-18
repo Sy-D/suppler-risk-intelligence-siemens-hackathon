@@ -27,7 +27,9 @@ def ask(question: str, agent=None) -> str:
     from app import build_agent, invoke_until_text
 
     agent = agent if agent is not None else build_agent()
-    return invoke_until_text(agent, ANALYST_PROMPT.format(question=question))
+    return invoke_until_text(
+        agent, ANALYST_PROMPT.format(question=question), label="analyst"
+    )
 
 
 def main(argv: list[str] | None = None) -> int:

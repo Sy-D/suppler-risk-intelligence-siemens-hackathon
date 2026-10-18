@@ -1049,6 +1049,11 @@ export function SupplierDashboard({
           onOpenChange={(open) => {
             if (!open) setPanel({ kind: "none" })
           }}
+          suppliers={suppliers}
+          onSelectExisting={(supplier) => {
+            toggleSupplier(supplier.id, true)
+            setPanel({ kind: "none" })
+          }}
           onResearched={(supplier) => {
             setResearched((previous) =>
               previous.some((s) => s.id === supplier.id)
