@@ -400,22 +400,46 @@ export function ResearchDialog({
     columns: Record<string, ColumnInfo>
   } | null>(null)
   const [matches, setMatches] = useState<Supplier[] | null>(null)
+  const [candidate, setCandidate] = useState<string | null>(null)
 
-  function checkFirst() {
+  async function checkFirst() {
     const hits = matchSuppliers(name, suppliers)
-    if (hits.length) setMatches(hits)
-    else run()
+    if (hits.length) {
+      setMatches(hits)
+      return
+    }
+    try {
+      const response = await fetch("/api/resolve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      })
+      const data = await response.json()
+      const canonical = String(data.canonical ?? "")
+        .trim()
+      if (canonical && canonical.toLowerCase() !== name.trim().toLowerCase()) {
+        setCandidate(canonical)
+        return
+      }
+    } catch {
+      // resolver unreachable — proceed with the name as typed
+    }
+    run()
   }
 
-  async function run() {
+  async function run(override?: string) {
+    const target = override ?? name
     setMatches(null)
+    setCandidate(null)
     setLoading(true)
     setError("")
     setResult(null)
     setReasoning(null)
     setActivity([])
     try {
-      for await (const event of streamAgent("/api/research", { name })) {
+      for await (const event of streamAgent("/api/research", {
+        name: target,
+      })) {
         if (event.type === "progress") {
           setActivity((prev) => [
             ...prev.slice(-19),
@@ -512,10 +536,35 @@ export function ResearchDialog({
             <Button
               variant="outline"
               className="w-full"
-              onClick={run}
+              onClick={() => run()}
             >
               Not a match — research anyway
             </Button>
+          </div>
+        ) : null}
+        {candidate ? (
+          <div className="space-y-3 rounded-2xl bg-muted p-4">
+            <p className="text-sm">
+              Did you mean <span className="font-semibold">{candidate}</span>?
+            </p>
+            <div className="flex gap-2">
+              <Button
+                className="flex-1"
+                onClick={() => {
+                  setName(candidate)
+                  run(candidate)
+                }}
+              >
+                Research {candidate}
+              </Button>
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => run()}
+              >
+                Research “{name}”
+              </Button>
+            </div>
           </div>
         ) : null}
         {loading ? (
@@ -526,7 +575,7 @@ export function ResearchDialog({
             <div className="flex items-start gap-3">
               <LoaderCircle className="mt-0.5 size-4 shrink-0 animate-spin" />
               <p>
-                Researching {name}… {activity.length === 0 &&
+                Researching {result?.name ?? name}… {activity.length === 0 &&
                   "the criteria agents are starting up."}
               </p>
             </div>

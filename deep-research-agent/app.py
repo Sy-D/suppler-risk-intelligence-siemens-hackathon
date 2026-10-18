@@ -373,6 +373,23 @@ def _group_scores(supplier: str, title: str, focus: str) -> dict:
         return {f: _fallback_for(f) for f in fields}
 
 
+def resolve_name(name: str, model=None) -> str:
+    """Resolve a casual input ('stadler') to the canonical company name via a
+    single cheap model call; falls back to the input unchanged."""
+    try:
+        model = model if model is not None else build_model(max_tokens=64)
+        text = _message_content(
+            model.invoke(
+                f'What is the full official name of the company commonly called '
+                f'"{name}"? Reply with only the company name on one line, no '
+                f'explanation. If unclear, reply with "{name}" unchanged.'
+            )
+        ).strip().strip('"')
+        return text or name
+    except Exception:
+        return name
+
+
 def score_supplier(supplier: str, criteria_jobs: int = 4) -> SupplierRiskScores:
     """Run all criteria pipelines in parallel and merge into the full schema."""
     with ThreadPoolExecutor(max_workers=min(criteria_jobs, len(CRITERIA_GROUPS))) as pool:
@@ -447,6 +464,11 @@ def _parse_flags(argv: list[str]) -> tuple[bool, int, int, list[str]]:
 
 def main(argv: Sequence[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
+    if "--resolve" in argv:
+        argv.remove("--resolve")
+        _json, _j, _c, names = _parse_flags(argv)
+        print(json.dumps({"canonical": resolve_name((names or DEFAULT_SUPPLIERS)[0])}))
+        return 0
     json_mode, jobs, criteria_jobs, suppliers = _parse_flags(argv)
     suppliers = suppliers or DEFAULT_SUPPLIERS
     # Assign ids up front so parallel workers cannot race on the row count.
