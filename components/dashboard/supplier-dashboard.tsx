@@ -119,7 +119,8 @@ export function SupplierDashboard({
   const [search, setSearch] = useState("")
   const query = useDeferredValue(search.trim().toLowerCase())
   const [riskFilter, setRiskFilter] = useState("All risk levels")
-  const [sort, setSort] = useState<SortState>(null)
+  // Highest total risk first by default.
+  const [sort, setSort] = useState<SortState>({ key: "risk", direction: "desc" })
   const [tableFilters, setTableFilters] = useState(defaultFilters)
   const [chartFilters, setChartFilters] = useState(defaultFilters)
   const [chartSearch, setChartSearch] = useState("")
