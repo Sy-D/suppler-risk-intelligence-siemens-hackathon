@@ -62,6 +62,19 @@ ERP export, not web research.
 A run makes several model calls and can take a minute or two per supplier —
 that is expected.
 
+## Ask-the-analyst mode
+
+`analyst.py` answers a free-text question with a sourced report instead of the
+CSV pipeline, and loads `.env` itself:
+
+```bash
+python analyst.py "What are the biggest current risk signals for Continental AG?"
+```
+
+The Next.js dashboard calls this via `app/api/analyst/route.ts` ("Ask your
+analyst" button), which spawns `deep-research-agent/.venv/bin/python
+analyst.py`. Override the interpreter with `ANALYST_PYTHON` if needed.
+
 ## Verify
 
 A good run returns concrete, checkable specifics (named entities, dates,

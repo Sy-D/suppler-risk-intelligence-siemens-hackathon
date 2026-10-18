@@ -7,7 +7,14 @@ import {
   exposureFormat,
 } from "./animated-number"
 import { useState } from "react"
-import { ArrowUp, FileText, Globe, Search, Sparkles } from "lucide-react"
+import {
+  ArrowUp,
+  FileText,
+  Globe,
+  LoaderCircle,
+  Search,
+  Sparkles,
+} from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -33,11 +40,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import {
-  euro,
-  RiskBadge,
-  riskDimensions,
-} from "@/components/dashboard/risk-badge"
+import { RiskBadge, riskDimensions } from "@/components/dashboard/risk-badge"
 import type { Supplier } from "@/lib/supplier-data"
 
 export function ComparisonDialog({
@@ -183,53 +186,49 @@ export function ComparisonDialog({
   )
 }
 
-function answerQuestion(
-  question: string,
-  suppliers: Supplier[],
-  selected: Supplier[]
-) {
-  const mentioned = new Set(question.toUpperCase().match(/SUPP_\d{5}/g))
-  if (/financ|finanz/i.test(question)) {
-    const candidates = mentioned.size
-      ? suppliers.filter((s) => mentioned.has(s.id))
-      : selected
-    if (candidates.length === 0)
-      return "Select suppliers or include their IDs to compare financial risk."
-    const ranked = [...candidates].sort((a, b) => a.financial - b.financial)
-    const best = ranked[0]
-    return `${best.name} (${best.id}) has the lowest financial risk in this selection: ${best.financial}/100.\n\n${ranked.map((s) => `${s.id}: ${s.financial}/100`).join(" · ")}\n\nIts credit rating risk is ${best.credit}/100 and total risk is ${best.risk}/100. A financial lead alone is not an overall award recommendation.\n\nSource: Financial_Health_Score, Credit_Rating_Score, Total_Risk_Index.`
+async function askAnalyst(question: string): Promise<string> {
+  const response = await fetch("/api/analyst", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ question }),
+  })
+  const data = await response.json()
+  if (!response.ok) {
+    throw new Error(data.error ?? "The research agent failed")
   }
-  if (mentioned.size) {
-    const supplier = suppliers.find(
-      (s) => s.id === mentioned.values().next().value
-    )
-    if (!supplier)
-      return "That supplier ID was not found in the dataset. Use an ID such as SUPP_00018."
-    const concerns = [...riskDimensions]
-      .sort((a, b) => supplier[b.key] - supplier[a.key])
-      .slice(0, 3)
-    return `${supplier.name} (${supplier.id}) has a total risk index of ${supplier.risk}/100 (${supplier.level.toLowerCase()} risk).\n\nThe highest scores across its financial, quality, operational, compliance, ESG, digital, governance and credit indicators are ${concerns.map((d) => `${d.label.toLowerCase()} ${supplier[d.key]}/100`).join(", ")}.\n\nDelivery rating: ${supplier.delivery.toFixed(2)}%. Purchase order exposure: ${euro.format(supplier.exposure)}.\n\nThese scores flag areas for review. The dataset does not provide the weights behind the total risk index, so exact contributions cannot be calculated.\n\nSource: supplier_risk_dataset.csv, row ${supplier.id}.`
-  }
-  return "This preview supports financial-risk comparisons and supplier risk profiles. Include supplier IDs or try one of the example questions above."
+  return data.answer
 }
 
 export function AnalystSheet({
   open,
   onOpenChange,
-  suppliers,
-  selected,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  suppliers: Supplier[]
-  selected: Supplier[]
 }) {
   const [question, setQuestion] = useState("")
   const [answer, setAnswer] = useState("")
+  const [loading, setLoading] = useState(false)
   const prompts = [
-    "Which of SUPP_00012, SUPP_00450 and SUPP_00731 has the lowest financial risk?",
-    "Why is SUPP_00018’s total risk index so high?",
+    "What are the biggest current risk signals for Continental AG?",
+    "Which recent events raise the risk of sourcing semiconductors from Nexperia?",
   ]
+  async function ask(text: string) {
+    setQuestion(text)
+    setLoading(true)
+    setAnswer("")
+    try {
+      setAnswer(await askAnalyst(text))
+    } catch (error) {
+      setAnswer(
+        error instanceof Error
+          ? error.message
+          : "The research agent could not be reached."
+      )
+    } finally {
+      setLoading(false)
+    }
+  }
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="w-full sm:max-w-lg">
@@ -239,27 +238,38 @@ export function AnalystSheet({
             Ask your analyst
           </SheetTitle>
           <SheetDescription>
-            Explore supplier risks with answers grounded in your data.
+            Explore supplier risks with answers grounded in live web research.
           </SheetDescription>
         </SheetHeader>
         <div className="flex-1 space-y-6 overflow-y-auto px-6 py-2">
-          <Badge variant="secondary">Dataset preview · example questions</Badge>
+          <Badge variant="secondary">
+            Live research · deep agent + web search
+          </Badge>
           <div className="space-y-2">
             {prompts.map((prompt) => (
               <Button
                 key={prompt}
                 variant="outline"
                 className="h-auto min-h-12 w-full justify-start py-3 text-left whitespace-normal"
-                onClick={() => {
-                  setQuestion(prompt)
-                  setAnswer(answerQuestion(prompt, suppliers, selected))
-                }}
+                disabled={loading}
+                onClick={() => ask(prompt)}
               >
                 {prompt}
               </Button>
             ))}
           </div>
-          {answer ? (
+          {loading ? (
+            <div
+              className="flex items-start gap-3 rounded-2xl bg-muted p-5 text-sm leading-relaxed"
+              role="status"
+            >
+              <LoaderCircle className="mt-0.5 size-4 shrink-0 animate-spin" />
+              <p>
+                Researching the web… the analyst plans, searches and reads
+                sources, so a run takes a minute or two.
+              </p>
+            </div>
+          ) : answer ? (
             <div
               className="rounded-2xl bg-muted p-5 text-sm leading-relaxed whitespace-pre-line"
               role="status"
@@ -269,10 +279,10 @@ export function AnalystSheet({
           ) : (
             <div className="py-10 text-center">
               <Sparkles className="mx-auto mb-4 size-7 text-muted-foreground" />
-              <h3 className="font-medium">Start with your shortlist.</h3>
+              <h3 className="font-medium">Ask about a real supplier.</h3>
               <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                Compare financial risk, or take a closer look at a supplier’s
-                risk profile.
+                The analyst researches public sources and returns a cited risk
+                answer.
               </p>
             </div>
           )}
@@ -281,8 +291,7 @@ export function AnalystSheet({
           className="space-y-3 border-t p-6"
           onSubmit={(event) => {
             event.preventDefault()
-            if (question.trim())
-              setAnswer(answerQuestion(question, suppliers, selected))
+            if (question.trim() && !loading) ask(question)
           }}
         >
           <label htmlFor="analyst-question" className="text-xs font-medium">
@@ -294,21 +303,21 @@ export function AnalystSheet({
               className="h-11 min-w-0 flex-1 text-base md:text-sm"
               value={question}
               onChange={(event) => setQuestion(event.target.value)}
-              placeholder="Ask about a supplier ID…"
+              placeholder="Ask about a supplier…"
             />
             <Button
               type="submit"
               size="icon-lg"
               className="size-11"
               aria-label="Ask question"
-              disabled={!question.trim()}
+              disabled={!question.trim() || loading}
             >
               <ArrowUp />
             </Button>
           </div>
           <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
             <FileText className="size-3" />
-            supplier_risk_dataset.csv · 10,000 suppliers
+            deep research agent · Nebius Token Factory + Tavily
           </p>
         </form>
       </SheetContent>

@@ -954,8 +954,6 @@ export function SupplierDashboard({ suppliers }: { suppliers: Supplier[] }) {
           onOpenChange={(open) => {
             if (!open) setPanel({ kind: "none" })
           }}
-          suppliers={suppliers}
-          selected={selected}
         />
         <ResearchDialog
           open={panel.kind === "research"}

@@ -111,13 +111,32 @@ def _message_content(message) -> str:
     return content if isinstance(content, str) else str(content)
 
 
+_MARKUP = re.compile(r"<\/?(?:tool_call|invoke)\b|\]<\]minimax")
+
+
+def last_report_text(result: dict) -> str | None:
+    """Return the latest message content that is real text — the model can
+    occasionally leak unparsed tool-call markup as the last message."""
+    for message in reversed(result["messages"]):
+        content = getattr(message, "content", "")
+        if isinstance(content, str) and content.strip() and not _MARKUP.search(content):
+            return content
+    return None
+
+
+def invoke_until_text(agent, prompt: str, attempts: int = 3) -> str:
+    """Invoke the agent until it produces a clean final text (retry on markup leaks)."""
+    for _ in range(attempts):
+        text = last_report_text(agent.invoke({"messages": [{"role": "user", "content": prompt}]}))
+        if text:
+            return text
+    raise RuntimeError("the agent returned no usable answer — retry the run")
+
+
 def research(supplier: str, agent=None) -> str:
     """Run the deep research agent on one supplier and return the report text."""
     agent = agent if agent is not None else build_agent()
-    result = agent.invoke(
-        {"messages": [{"role": "user", "content": RESEARCH_PROMPT.format(supplier=supplier)}]}
-    )
-    return _message_content(result["messages"][-1])
+    return invoke_until_text(agent, RESEARCH_PROMPT.format(supplier=supplier))
 
 
 def extract_scores(supplier: str, report: str, model=None) -> SupplierRiskScores:
