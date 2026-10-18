@@ -1,10 +1,12 @@
 services:
   app:
     build: .
-    env_file:
-      # Copy .env.example to .env and fill in the keys.
-      - path: .env
-        required: false
+    environment:
+      # Read from the host shell; falls back to .env (copy .env.example) if present.
+      NEBIUS_API_KEY: ${NEBIUS_API_KEY:?NEBIUS_API_KEY must be set}
+      NEBIUS_BASE_URL: ${NEBIUS_BASE_URL:-https://api.tokenfactory.nebius.com/v1}
+      NEBIUS_MODEL: ${NEBIUS_MODEL:-MiniMaxAI/MiniMax-M3}
+      TAVILY_API_KEY: ${TAVILY_API_KEY}
     volumes:
       # Persist the agent's research CSV/JSONL outside the container; the
       # dashboard unions it into the supplier list at request time.
