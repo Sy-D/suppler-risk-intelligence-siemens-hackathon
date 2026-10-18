@@ -113,8 +113,11 @@ export function SupplierDashboard({
 }) {
   const [researched, setResearched] = useState<Supplier[]>([])
   const suppliers = useMemo(() => {
-    const known = new Set(dataset.map((d) => d.id))
-    return [...researched.filter((r) => !known.has(r.id)), ...dataset]
+    // A freshly re-researched row replaces the stale persisted CSV row.
+    return [
+      ...researched,
+      ...dataset.filter((d) => !researched.some((r) => r.id === d.id)),
+    ]
   }, [researched, dataset])
   const [search, setSearch] = useState("")
   const query = useDeferredValue(search.trim().toLowerCase())
@@ -825,6 +828,8 @@ export function SupplierDashboard({
                               <p className="font-medium">{supplier.name}</p>
                               <p className="mt-1 font-mono text-[11px] text-muted-foreground">
                                 {supplier.id}
+                                {supplier.lastModified &&
+                                  ` · ${supplier.lastModified.slice(0, 10)}`}
                               </p>
                             </TableCell>
                             <TableCell>
@@ -1057,7 +1062,7 @@ export function SupplierDashboard({
           onResearched={(supplier) => {
             setResearched((previous) =>
               previous.some((s) => s.id === supplier.id)
-                ? previous
+                ? previous.map((s) => (s.id === supplier.id ? supplier : s))
                 : [supplier, ...previous]
             )
             toggleSupplier(supplier.id, true)

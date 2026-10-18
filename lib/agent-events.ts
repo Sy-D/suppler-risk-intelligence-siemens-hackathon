@@ -6,6 +6,7 @@ export type AgentEvent =
 export interface AgentRequest {
   name?: string
   question?: string
+  updateId?: string
 }
 
 /** Client-side reader for the SSE stream emitted by the agent routes. */

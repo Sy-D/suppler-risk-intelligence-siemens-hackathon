@@ -17,6 +17,7 @@ import {
   Globe,
   LoaderCircle,
   Play,
+  RefreshCw,
   Search,
   Sparkles,
 } from "lucide-react"
@@ -500,7 +501,7 @@ export function ResearchDialog({
     run()
   }
 
-  async function run(override?: string) {
+  async function run(override?: string, updateId?: string) {
     const target = override ?? name
     setMatches(null)
     setCandidate(null)
@@ -512,6 +513,7 @@ export function ResearchDialog({
     try {
       for await (const event of streamAgent("/api/research", {
         name: target,
+        updateId,
       })) {
         if (event.type === "progress") {
           setActivity((prev) => [
@@ -591,22 +593,39 @@ export function ResearchDialog({
               anyway.
             </p>
             {matches.map((supplier) => (
-              <button
+              <div
                 key={supplier.id}
-                type="button"
-                className="flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2 text-left hover:bg-background"
-                onClick={() => onSelectExisting(supplier)}
+                className="flex items-center gap-2 rounded-xl border px-3 py-2"
               >
-                <span className="min-w-0">
-                  <span className="block truncate text-sm font-medium">
-                    {supplier.name}
+                <button
+                  type="button"
+                  className="flex min-w-0 flex-1 items-center justify-between gap-3 text-left"
+                  onClick={() => onSelectExisting(supplier)}
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-medium">
+                      {supplier.name}
+                    </span>
+                    <span className="font-mono text-[11px] text-muted-foreground">
+                      {supplier.id}
+                      {supplier.lastModified &&
+                        ` · researched ${supplier.lastModified.slice(0, 10)}`}
+                    </span>
                   </span>
-                  <span className="font-mono text-[11px] text-muted-foreground">
-                    {supplier.id}
-                  </span>
-                </span>
-                <RiskBadge level={supplier.level} />
-              </button>
+                  <RiskBadge level={supplier.level} />
+                </button>
+                {supplier.researched && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    title="Re-run research for this supplier"
+                    onClick={() => run(supplier.name, supplier.id)}
+                  >
+                    <RefreshCw className="size-3.5" />
+                    Update
+                  </Button>
+                )}
+              </div>
             ))}
             <Button
               variant="outline"

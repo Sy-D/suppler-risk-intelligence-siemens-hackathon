@@ -34,6 +34,8 @@ from schema import (
     SupplierRiskScores,
     append_csv,
     append_jsonl,
+    upsert_csv,
+    upsert_jsonl,
     build_reasoning,
     build_row,
     next_supplier_id,
@@ -438,6 +440,7 @@ def process_supplier(
     csv_path: Path = OUTPUT_CSV,
     jsonl_path: Path = REASONING_JSONL,
     criteria_jobs: int = 4,
+    update: bool = False,
     agent=None,
     model=None,
 ) -> tuple[dict, dict]:
@@ -449,14 +452,18 @@ def process_supplier(
     with _WRITE_LOCK:
         row = build_row(supplier_id or next_supplier_id(csv_path), supplier, scores)
         reasoning = build_reasoning(row, scores)
-        append_csv(csv_path, row)
-        append_jsonl(jsonl_path, reasoning)
+        if update:
+            upsert_csv(csv_path, row)
+            upsert_jsonl(jsonl_path, reasoning)
+        else:
+            append_csv(csv_path, row)
+            append_jsonl(jsonl_path, reasoning)
     return row, reasoning
 
 
-def _parse_flags(argv: list[str]) -> tuple[bool, int, int, list[str]]:
-    """Split CLI args into (json_mode, jobs, criteria_jobs, supplier names)."""
-    json_mode, jobs, criteria_jobs, suppliers = False, 2, 4, []
+def _parse_flags(argv: list[str]) -> tuple[bool, int, int, str | None, list[str]]:
+    """Split CLI args into (json_mode, jobs, criteria_jobs, update_id, names)."""
+    json_mode, jobs, criteria_jobs, update_id, suppliers = False, 2, 4, None, []
     it = iter(argv)
     for arg in it:
         if arg == "--json":
@@ -469,29 +476,40 @@ def _parse_flags(argv: list[str]) -> tuple[bool, int, int, list[str]]:
             criteria_jobs = int(next(it, "4"))
         elif arg.startswith("--criteria-jobs="):
             criteria_jobs = int(arg.split("=", 1)[1])
+        elif arg == "--update-id":
+            update_id = next(it, None)
+        elif arg.startswith("--update-id="):
+            update_id = arg.split("=", 1)[1]
         else:
             suppliers.append(arg)
-    return json_mode, max(1, jobs), max(1, criteria_jobs), suppliers
+    return json_mode, max(1, jobs), max(1, criteria_jobs), update_id, suppliers
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if "--resolve" in argv:
         argv.remove("--resolve")
-        _json, _j, _c, names = _parse_flags(argv)
+        _json, _j, _c, _u, names = _parse_flags(argv)
         print(json.dumps({"canonical": resolve_name((names or DEFAULT_SUPPLIERS)[0])}))
         return 0
-    json_mode, jobs, criteria_jobs, suppliers = _parse_flags(argv)
+    json_mode, jobs, criteria_jobs, update_id, suppliers = _parse_flags(argv)
     suppliers = suppliers or DEFAULT_SUPPLIERS
-    # Assign ids up front so parallel workers cannot race on the row count.
-    base = int(next_supplier_id(OUTPUT_CSV).rsplit("_", 1)[1]) - 1
-    tasks = [(name, f"SUPP_{base + i + 1:05d}") for i, name in enumerate(suppliers)]
+    if update_id:
+        # Refresh an existing row in place instead of appending a new one.
+        tasks = [(suppliers[0], update_id.replace("RSCH_", "SUPP_"))]
+    else:
+        # Assign ids up front so parallel workers cannot race on the row count.
+        base = int(next_supplier_id(OUTPUT_CSV).rsplit("_", 1)[1]) - 1
+        tasks = [(name, f"SUPP_{base + i + 1:05d}") for i, name in enumerate(suppliers)]
     try:
         with ThreadPoolExecutor(max_workers=min(jobs, len(tasks))) as pool:
             results = list(
                 pool.map(
                     lambda task: process_supplier(
-                        task[0], task[1], criteria_jobs=criteria_jobs
+                        task[0],
+                        task[1],
+                        criteria_jobs=criteria_jobs,
+                        update=bool(update_id),
                     ),
                     tasks,
                 )

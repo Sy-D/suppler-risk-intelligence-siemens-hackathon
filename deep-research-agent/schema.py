@@ -232,10 +232,47 @@ def build_reasoning(row: dict, scores: SupplierRiskScores) -> dict:
     }
 
 
+def upsert_csv(path: Path, row: dict) -> None:
+    """Replace the row with the same supplierID, appending if absent."""
+    rows, replaced = [], False
+    if path.exists():
+        with path.open() as fh:
+            for existing in csv.DictReader(fh):
+                if existing["supplierID"] == row["supplierID"]:
+                    rows.append(row)
+                    replaced = True
+                else:
+                    rows.append(existing)
+    if not replaced:
+        rows.append(row)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=CSV_HEADER)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
 def append_jsonl(path: Path, record: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a") as fh:
         fh.write(json.dumps(record) + "\n")
+
+
+def upsert_jsonl(path: Path, record: dict) -> None:
+    """Replace the reasoning record for the same supplierID."""
+    records, replaced = [], False
+    if path.exists():
+        for line in path.read_text().splitlines():
+            existing = json.loads(line)
+            if existing["supplierID"] == record["supplierID"]:
+                records.append(record)
+                replaced = True
+            else:
+                records.append(existing)
+    if not replaced:
+        records.append(record)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("".join(json.dumps(r) + "\n" for r in records))
 
 
 def next_supplier_id(path: Path) -> str:

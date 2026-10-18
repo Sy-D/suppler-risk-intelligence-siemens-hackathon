@@ -24,6 +24,7 @@ const supplierRow = z
     "Supplier Delivery Rating": z.coerce.number().min(0).max(100),
     "Purchase Order Volume (EUR)": z.coerce.number().min(0),
     "Sourcing Risk Level": z.enum(["Low", "Medium", "High", "Critical"]),
+    "Last Modified": z.string().default(""),
   })
   .transform((row) => ({
     id: row.supplierID,
@@ -41,6 +42,7 @@ const supplierRow = z
     delivery: row["Supplier Delivery Rating"],
     exposure: row["Purchase Order Volume (EUR)"],
     sourcing: row["Sourcing Risk Level"],
+    lastModified: row["Last Modified"] || undefined,
     researched: row.supplierID.startsWith("RSCH_") ? true : undefined,
   }))
 
@@ -88,11 +90,12 @@ async function readSupplierRows() {
          Compliance_Risk_Score, ESG_Performance_Score, Digital_Security_Score,
          Governance_Risk_Score, Credit_Rating_Score,
          "Supplier Delivery Rating", "Purchase Order Volume (EUR)",
-         "Sourcing Risk Level"
+         "Sourcing Risk Level", "Last Modified"
        FROM read_csv('${RESEARCH_CSV}', all_varchar = true)`
     : ""
   const result = await conn.runAndReadAll(
-    `SELECT ${COLUMNS} FROM read_csv('${DATASET_CSV}', all_varchar = true)
+    `SELECT ${COLUMNS}, '' AS "Last Modified"
+     FROM read_csv('${DATASET_CSV}', all_varchar = true)
      ${research}`
   )
   return result.getRowObjects()

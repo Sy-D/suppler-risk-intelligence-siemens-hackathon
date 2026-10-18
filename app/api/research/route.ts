@@ -17,6 +17,7 @@ function toSupplier(row: Record<string, string | number>) {
     delivery: 0,
     exposure: 0,
     sourcing: String(row["Sourcing Risk Level"]),
+    lastModified: String(row["Last Modified"] ?? ""),
     researched: true,
   }
 }
@@ -26,10 +27,16 @@ export async function POST(request: Request) {
   const name = String(body?.name ?? "")
     .trim()
     .slice(0, 200)
+  const updateId = String(body?.updateId ?? "")
+    .trim()
+    .slice(0, 20)
   if (!name) {
     return Response.json({ error: "Missing supplier name" }, { status: 400 })
   }
-  return agentEventStream(["app.py", "--json", name], (stdout) => {
+  const args = ["app.py", "--json"]
+  if (updateId) args.push("--update-id", updateId.replace("RSCH_", "SUPP_"))
+  args.push(name)
+  return agentEventStream(args, (stdout) => {
     const result = JSON.parse(stdout)
     const first = result?.suppliers?.[0]
     if (!first?.row) {
