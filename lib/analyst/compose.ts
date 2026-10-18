@@ -6,7 +6,7 @@ import {
 import { riskDimensions } from "@/lib/risk"
 import type { Supplier } from "@/lib/supplier-data"
 
-const mentionPattern = /SUPP_\d{5}/g
+const mentionPattern = /(?:SUPP|RSCH)_\d{5}/g
 
 export function composeAnswer(
   question: string,
@@ -14,6 +14,16 @@ export function composeAnswer(
   selected: Supplier[]
 ): AnalystAnswer {
   const mentioned = new Set(question.toUpperCase().match(mentionPattern))
+  // Names count as mentions too — longest first so "Continental, Siemens"
+  // wins over "Continental" when both are substrings of the question.
+  const lower = question.toLowerCase()
+  for (const s of [...suppliers].sort(
+    (a, b) => b.name.length - a.name.length
+  )) {
+    if (s.name.length >= 4 && lower.includes(s.name.toLowerCase())) {
+      mentioned.add(s.id)
+    }
+  }
 
   if (/financ|finanz/i.test(question)) {
     const candidates = mentioned.size

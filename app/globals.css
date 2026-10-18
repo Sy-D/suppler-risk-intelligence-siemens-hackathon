@@ -11,6 +11,7 @@
     --animate-backdrop-in: backdrop-in 160ms ease-out both;
     --animate-overlay-in: overlay-in 180ms cubic-bezier(0.23, 1, 0.32, 1) both;
     --animate-dock-in: dock-in 340ms cubic-bezier(0.32, 0.72, 0, 1) both;
+    --animate-bar-grow: bar-grow 420ms cubic-bezier(0.23, 1, 0.32, 1) both;
     --animate-aurora: aurora 6s ease-in-out infinite alternate;
     --font-heading: var(--font-sans);
     --font-sans: var(--font-sans);
@@ -206,6 +207,10 @@
 
 @keyframes detail-in {
   from { opacity: 0; transform: translateY(5px); }
+}
+
+@keyframes bar-grow {
+  from { transform: scaleY(0); }
 }
 
 @keyframes row-in {
