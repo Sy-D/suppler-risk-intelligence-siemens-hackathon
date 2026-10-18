@@ -33,8 +33,8 @@ ENV NODE_ENV=production \
     ANALYST_PYTHON=/usr/local/bin/python3
 
 COPY deep-research-agent/requirements.txt ./deep-research-agent/
-# duckdb is needed by scripts/ask.py (analyst) and scripts/create_duckdb.py.
-RUN pip install --no-cache-dir -r deep-research-agent/requirements.txt duckdb==1.5.6
+# requirements.txt includes duckdb for scripts/ask.py + create_duckdb.py.
+RUN pip install --no-cache-dir -r deep-research-agent/requirements.txt
 
 COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=build /app/.next ./.next
