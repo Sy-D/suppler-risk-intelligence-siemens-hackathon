@@ -201,6 +201,9 @@ Ground every score in the report's findings; if the report has no evidence
 for a dimension, use a middle-range score, say so in the reason, and leave
 sources empty. Also set sourcing_risk_level and supply_chain_complexity to
 the most fitting allowed value, each with its own reason and sources.
+Fill company_profile (hq_city, hq_country, website, contact_email) from the
+report when it names the headquarters, official site or a public contact;
+leave fields empty when unknown.
 
 Research report:
 {report}

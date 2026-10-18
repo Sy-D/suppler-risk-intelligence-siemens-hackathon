@@ -1,7 +1,6 @@
 "use client"
 
 import { useEffect, useRef } from "react"
-import { AnimatedNumber } from "./animated-number"
 
 export function riskColor(value: number) {
   return `var(--risk-${value < 25 ? "low" : value < 50 ? "medium" : value < 75 ? "high" : "critical"})`
@@ -32,11 +31,7 @@ export function RiskBar({
   }, [value])
   return (
     <div className="flex min-w-28 items-center gap-3">
-      <AnimatedNumber
-        value={value}
-        className="w-7 shrink-0 tabular-nums"
-        respectMotionPreference
-      />
+      <span className="w-7 shrink-0 tabular-nums">{value}</span>
       <span
         className="h-1.5 min-w-8 flex-1 overflow-hidden rounded-full bg-muted"
         aria-hidden="true"

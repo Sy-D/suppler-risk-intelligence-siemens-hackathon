@@ -1,7 +1,7 @@
 import Link from "next/link"
 import { ArrowLeft } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { ComparisonTable } from "@/components/dashboard/workspace-panels"
+import { ComparisonTable, ConcentrationAlerts } from "@/components/dashboard/workspace-panels"
 import { getSuppliers } from "@/lib/supplier-data"
 
 export default async function ComparePage({
@@ -43,6 +43,7 @@ export default async function ComparePage({
         </p>
       ) : (
         <div className="overflow-x-auto rounded-2xl border bg-card p-6">
+          <ConcentrationAlerts suppliers={suppliers} />
           <ComparisonTable suppliers={suppliers} />
         </div>
       )}

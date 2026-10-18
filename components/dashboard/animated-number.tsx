@@ -24,10 +24,11 @@ export function AnimatedNumber({
   format: numberFormat,
   prefix,
   suffix,
+  animate = true,
   ...props
-}: Omit<NumberFlowProps, "value"> & { value: number }) {
+}: Omit<NumberFlowProps, "value"> & { value: number; animate?: boolean }) {
   const [entered, setEntered] = useState(false)
-  const [visible, setVisible] = useState(false)
+  const [visible, setVisible] = useState(!animate)
   const ref = useRef<HTMLSpanElement>(null)
   const reducedMotion = usePrefersReducedMotion()
   useEffect(() => {
@@ -56,6 +57,13 @@ export function AnimatedNumber({
       cancelAnimationFrame(revealFrame)
     }
   }, [visible])
+  if (!animate) {
+    return (
+      <span className="tabular-nums">
+        {plainFormat(value, numberFormat, prefix, suffix)}
+      </span>
+    )
+  }
   return (
     <span ref={ref}>
       {visible ? (
