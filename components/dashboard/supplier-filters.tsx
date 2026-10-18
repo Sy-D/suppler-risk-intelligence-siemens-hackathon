@@ -93,7 +93,7 @@ export function SupplierFiltersControl({
         <label className="space-y-2 text-xs text-muted-foreground">
           Sourcing risk
           <Select
-            items={["Any", "Low", "Medium", "High"].map((value) => ({
+            items={["Any", "Low", "Medium", "High", "Critical"].map((value) => ({
               value,
               label: value,
             }))}

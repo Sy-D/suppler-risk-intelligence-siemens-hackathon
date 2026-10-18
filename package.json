@@ -13,11 +13,11 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",
+    "@duckdb/node-api": "^1.5.6-r.1",
     "@number-flow/react": "^0.6.2",
     "border-beam": "^1.4.1",
     "class-variance-authority": "^0.7.1",
     "cn": "^0.5.0",
-    "csv-parse": "^7.0.3",
     "lucide-react": "^1.59.0",
     "next": "16.4.0",
     "next-themes": "^0.4.6",

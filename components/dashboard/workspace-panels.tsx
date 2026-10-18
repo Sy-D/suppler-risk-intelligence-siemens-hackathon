@@ -13,6 +13,7 @@ import {
   Expand,
   FileText,
   Globe,
+  LoaderCircle,
   Search,
   Sparkles,
 } from "lucide-react"
@@ -41,11 +42,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import {
-  euro,
-  RiskBadge,
-  riskDimensions,
-} from "@/components/dashboard/risk-badge"
+import { RiskBadge, riskDimensions } from "@/components/dashboard/risk-badge"
 import type { Supplier } from "@/lib/supplier-data"
 
 export function ComparisonDialog({
@@ -107,8 +104,9 @@ export function ComparisonDialog({
           <ComparisonTable suppliers={suppliers} />
         )}
         <p className="text-xs text-muted-foreground">
-          Source: supplier_risk_dataset.csv. Higher delivery ratings are better.
-          Risk weights and component suitability are not provided.
+          Source: supplier_risk_dataset.csv plus live web research (RSCH_*
+          rows). Higher delivery ratings are better. Risk weights and component
+          suitability are not provided.
         </p>
       </DialogContent>
     </Dialog>
@@ -187,11 +185,15 @@ export function ComparisonTable({ suppliers }: { suppliers: Supplier[] }) {
                     className="tabular-nums motion-safe:animate-detail-in"
                     style={{ animationDelay: `${i * 45}ms` }}
                   >
-                    <AnimatedNumber
-                      value={s.delivery}
-                      format={deliveryFormat}
-                      suffix="%"
-                    />
+                    {s.researched ? (
+                      "—"
+                    ) : (
+                      <AnimatedNumber
+                        value={s.delivery}
+                        format={deliveryFormat}
+                        suffix="%"
+                      />
+                    )}
                   </TableCell>
                 ))}
               </TableRow>
@@ -205,10 +207,14 @@ export function ComparisonTable({ suppliers }: { suppliers: Supplier[] }) {
                     className="tabular-nums motion-safe:animate-detail-in"
                     style={{ animationDelay: `${i * 45}ms` }}
                   >
-                    <AnimatedNumber
-                      value={s.exposure}
-                      format={exposureFormat}
-                    />
+                    {s.researched ? (
+                      "—"
+                    ) : (
+                      <AnimatedNumber
+                        value={s.exposure}
+                        format={exposureFormat}
+                      />
+                    )}
                   </TableCell>
                 ))}
               </TableRow>
@@ -217,53 +223,49 @@ export function ComparisonTable({ suppliers }: { suppliers: Supplier[] }) {
   )
 }
 
-export function answerQuestion(
-  question: string,
-  suppliers: Supplier[],
-  selected: Supplier[]
-) {
-  const mentioned = new Set(question.toUpperCase().match(/SUPP_\d{5}/g))
-  if (/financ|finanz/i.test(question)) {
-    const candidates = mentioned.size
-      ? suppliers.filter((s) => mentioned.has(s.id))
-      : selected
-    if (candidates.length === 0)
-      return "Select suppliers or include their IDs to compare financial risk."
-    const ranked = [...candidates].sort((a, b) => a.financial - b.financial)
-    const best = ranked[0]
-    return `${best.name} (${best.id}) has the lowest financial risk in this selection: ${best.financial}/100.\n\n${ranked.map((s) => `${s.id}: ${s.financial}/100`).join(" · ")}\n\nIts credit rating risk is ${best.credit}/100 and total risk is ${best.risk}/100. A financial lead alone is not an overall award recommendation.\n\nSource: Financial_Health_Score, Credit_Rating_Score, Total_Risk_Index.`
+async function askAnalyst(question: string): Promise<string> {
+  const response = await fetch("/api/analyst", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ question }),
+  })
+  const data = await response.json()
+  if (!response.ok) {
+    throw new Error(data.error ?? "The research agent failed")
   }
-  if (mentioned.size) {
-    const supplier = suppliers.find(
-      (s) => s.id === mentioned.values().next().value
-    )
-    if (!supplier)
-      return "That supplier ID was not found in the dataset. Use an ID such as SUPP_00018."
-    const concerns = [...riskDimensions]
-      .sort((a, b) => supplier[b.key] - supplier[a.key])
-      .slice(0, 3)
-    return `${supplier.name} (${supplier.id}) has a total risk index of ${supplier.risk}/100 (${supplier.level.toLowerCase()} risk).\n\nThe highest scores across its financial, quality, operational, compliance, ESG, digital, governance and credit indicators are ${concerns.map((d) => `${d.label.toLowerCase()} ${supplier[d.key]}/100`).join(", ")}.\n\nDelivery rating: ${supplier.delivery.toFixed(2)}%. Purchase order exposure: ${euro.format(supplier.exposure)}.\n\nThese scores flag areas for review. The dataset does not provide the weights behind the total risk index, so exact contributions cannot be calculated.\n\nSource: supplier_risk_dataset.csv, row ${supplier.id}.`
-  }
-  return "This preview supports financial-risk comparisons and supplier risk profiles. Include supplier IDs or try one of the example questions above."
+  return data.answer
 }
 
 export function AnalystSheet({
   open,
   onOpenChange,
-  suppliers,
-  selected,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  suppliers: Supplier[]
-  selected: Supplier[]
 }) {
   const [question, setQuestion] = useState("")
   const [answer, setAnswer] = useState("")
+  const [loading, setLoading] = useState(false)
   const prompts = [
-    "Which of SUPP_00012, SUPP_00450 and SUPP_00731 has the lowest financial risk?",
-    "Why is SUPP_00018’s total risk index so high?",
+    "What are the biggest current risk signals for Continental AG?",
+    "Which recent events raise the risk of sourcing semiconductors from Nexperia?",
   ]
+  async function ask(text: string) {
+    setQuestion(text)
+    setLoading(true)
+    setAnswer("")
+    try {
+      setAnswer(await askAnalyst(text))
+    } catch (error) {
+      setAnswer(
+        error instanceof Error
+          ? error.message
+          : "The research agent could not be reached."
+      )
+    } finally {
+      setLoading(false)
+    }
+  }
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="w-full sm:max-w-lg">
@@ -273,27 +275,38 @@ export function AnalystSheet({
             Ask your analyst
           </SheetTitle>
           <SheetDescription>
-            Explore supplier risks with answers grounded in your data.
+            Explore supplier risks with answers grounded in live web research.
           </SheetDescription>
         </SheetHeader>
         <div className="flex-1 space-y-6 overflow-y-auto px-6 py-2">
-          <Badge variant="secondary">Dataset preview · example questions</Badge>
+          <Badge variant="secondary">
+            Live research · deep agent + web search
+          </Badge>
           <div className="space-y-2">
             {prompts.map((prompt) => (
               <Button
                 key={prompt}
                 variant="outline"
                 className="h-auto min-h-12 w-full justify-start py-3 text-left whitespace-normal"
-                onClick={() => {
-                  setQuestion(prompt)
-                  setAnswer(answerQuestion(prompt, suppliers, selected))
-                }}
+                disabled={loading}
+                onClick={() => ask(prompt)}
               >
                 {prompt}
               </Button>
             ))}
           </div>
-          {answer ? (
+          {loading ? (
+            <div
+              className="flex items-start gap-3 rounded-2xl bg-muted p-5 text-sm leading-relaxed"
+              role="status"
+            >
+              <LoaderCircle className="mt-0.5 size-4 shrink-0 animate-spin" />
+              <p>
+                Researching the web… the analyst plans, searches and reads
+                sources, so a run takes a minute or two.
+              </p>
+            </div>
+          ) : answer ? (
             <div
               className="rounded-2xl bg-muted p-5 text-sm leading-relaxed whitespace-pre-line"
               role="status"
@@ -303,10 +316,10 @@ export function AnalystSheet({
           ) : (
             <div className="py-10 text-center">
               <Sparkles className="mx-auto mb-4 size-7 text-muted-foreground" />
-              <h3 className="font-medium">Start with your shortlist.</h3>
+              <h3 className="font-medium">Ask about a real supplier.</h3>
               <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                Compare financial risk, or take a closer look at a supplier’s
-                risk profile.
+                The analyst researches public sources and returns a cited risk
+                answer.
               </p>
             </div>
           )}
@@ -315,8 +328,7 @@ export function AnalystSheet({
           className="space-y-3 border-t p-6"
           onSubmit={(event) => {
             event.preventDefault()
-            if (question.trim())
-              setAnswer(answerQuestion(question, suppliers, selected))
+            if (question.trim() && !loading) ask(question)
           }}
         >
           <label htmlFor="analyst-question" className="text-xs font-medium">
@@ -328,21 +340,21 @@ export function AnalystSheet({
               className="h-11 min-w-0 flex-1 text-base md:text-sm"
               value={question}
               onChange={(event) => setQuestion(event.target.value)}
-              placeholder="Ask about a supplier ID…"
+              placeholder="Ask about a supplier…"
             />
             <Button
               type="submit"
               size="icon-lg"
               className="size-11"
               aria-label="Ask question"
-              disabled={!question.trim()}
+              disabled={!question.trim() || loading}
             >
               <ArrowUp />
             </Button>
           </div>
           <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
             <FileText className="size-3" />
-            supplier_risk_dataset.csv · 10,000 suppliers
+            deep research agent · Nebius Token Factory + Tavily
           </p>
         </form>
       </SheetContent>
@@ -353,55 +365,159 @@ export function AnalystSheet({
 export function ResearchDialog({
   open,
   onOpenChange,
+  onResearched,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
+  onResearched: (supplier: Supplier) => void
 }) {
+  const [name, setName] = useState("")
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState("")
+  const [result, setResult] = useState<Supplier | null>(null)
+
+  async function run() {
+    setLoading(true)
+    setError("")
+    setResult(null)
+    try {
+      const response = await fetch("/api/research", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error ?? "Research failed")
+      setResult(data.supplier)
+      onResearched(data.supplier)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Research failed")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const topDimensions = result
+    ? [...riskDimensions].sort((a, b) => result[b.key] - result[a.key]).slice(0, 3)
+    : []
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>Research a real company</DialogTitle>
           <DialogDescription>
-            The dataset is anonymized. External research needs a verified
-            company name.
+            The dataset is anonymized. Enter a verified company name — the deep
+            research agent investigates public sources, scores the risk
+            dimensions, and adds the supplier to your comparison list.
           </DialogDescription>
         </DialogHeader>
-        <Badge variant="secondary" className="w-fit">
-          Workflow preview
-        </Badge>
-        <ol className="space-y-5">
-          {[
-            {
-              title: "Plan the investigation",
-              text: "Confirm the company identity and the risk areas to examine.",
-              icon: Search,
-            },
-            {
-              title: "Review public evidence",
-              text: "Check company filings, official sources and recent news.",
-              icon: Globe,
-            },
-            {
-              title: "Investigate and cite",
-              text: "Follow red flags and produce a report with dated source links.",
-              icon: FileText,
-            },
-          ].map((step) => (
-            <li key={step.title} className="flex gap-3">
-              <step.icon className="mt-1 size-4 shrink-0 text-muted-foreground" />
+        <form
+          className="flex gap-2"
+          onSubmit={(event) => {
+            event.preventDefault()
+            if (name.trim() && !loading) run()
+          }}
+        >
+          <Input
+            className="h-11 min-w-0 flex-1 text-base md:text-sm"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder="Company name, e.g. Continental AG"
+            disabled={loading}
+          />
+          <Button
+            type="submit"
+            className="h-11"
+            disabled={!name.trim() || loading}
+          >
+            <Search className="size-4" />
+            Research
+          </Button>
+        </form>
+        {loading ? (
+          <div
+            className="flex items-start gap-3 rounded-2xl bg-muted p-5 text-sm leading-relaxed"
+            role="status"
+          >
+            <LoaderCircle className="mt-0.5 size-4 shrink-0 animate-spin" />
+            <p>
+              Researching {name}… the agent plans, searches and reads sources
+              before scoring, so a run takes a minute or two.
+            </p>
+          </div>
+        ) : null}
+        {error ? (
+          <p className="rounded-2xl bg-muted p-5 text-sm leading-relaxed">
+            {error}
+          </p>
+        ) : null}
+        {result ? (
+          <div className="space-y-4 rounded-2xl bg-muted p-5" role="status">
+            <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-sm font-medium">{step.title}</p>
-                <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-                  {step.text}
+                <p className="font-medium">{result.name}</p>
+                <p className="mt-0.5 font-mono text-[11px] text-muted-foreground">
+                  {result.id}
                 </p>
               </div>
-            </li>
-          ))}
-        </ol>
-        <p className="text-xs text-muted-foreground">
-          External research will be connected in the next implementation step.
-        </p>
+              <RiskBadge level={result.level} />
+            </div>
+            <div className="text-2xl font-medium tabular-nums">
+              {result.risk}
+              <span className="text-xs font-normal text-muted-foreground">
+                {" "}
+                / 100 total risk
+              </span>
+            </div>
+            <div className="space-y-2">
+              {topDimensions.map((dimension) => (
+                <div key={dimension.key}>
+                  <p className="mb-1 text-xs text-muted-foreground">
+                    {dimension.label}
+                  </p>
+                  <RiskBar value={result[dimension.key]} enter />
+                </div>
+              ))}
+            </div>
+            <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+              <Globe className="size-3" />
+              Added to the supplier list and selected for comparison. Internal
+              delivery and order data is not researched and shows as —.
+            </p>
+          </div>
+        ) : null}
+        {!loading && !result && !error ? (
+          <ol className="space-y-4 border-t pt-4">
+            {[
+              {
+                title: "Plan the investigation",
+                text: "Confirm the company identity and the risk areas to examine.",
+                icon: Search,
+              },
+              {
+                title: "Review public evidence",
+                text: "Check company filings, official sources and recent news.",
+                icon: Globe,
+              },
+              {
+                title: "Investigate and cite",
+                text: "Follow red flags and score each risk dimension from sourced findings.",
+                icon: FileText,
+              },
+            ].map((step) => (
+              <li key={step.title} className="flex gap-3">
+                <step.icon className="mt-1 size-4 shrink-0 text-muted-foreground" />
+                <div>
+                  <p className="text-sm font-medium">{step.title}</p>
+                  <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                    {step.text}
+                  </p>
+                </div>
+              </li>
+            ))}
+          </ol>
+        ) : null}
       </DialogContent>
     </Dialog>
   )
