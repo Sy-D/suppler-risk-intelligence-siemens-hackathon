@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import csv
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
@@ -83,6 +84,7 @@ CSV_HEADER = [
     "Order Confirmation Rate",
     "Sourcing Risk Level",
     "Supply Chain Complexity",
+    "Last Modified",
 ]
 
 INTERNAL_FIELDS = [
@@ -178,6 +180,7 @@ def build_row(supplier_id: str, name: str, scores: SupplierRiskScores) -> dict:
     row["Total_Risk_Index_Level"] = level_for(total_index)
     for field in INTERNAL_FIELDS:
         row[field] = ""
+    row["Last Modified"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
     return {col: row[col] for col in CSV_HEADER}
 
 
@@ -217,6 +220,11 @@ def build_reasoning(row: dict, scores: SupplierRiskScores) -> dict:
         ("Supply Chain Complexity", scores.supply_chain_complexity),
     ):
         columns[col] = {"value": choice.value, "reason": choice.reason, "sources": choice.sources}
+    columns["Last Modified"] = {
+        "value": row["Last Modified"],
+        "reason": "UTC timestamp written when the row was produced",
+        "sources": [],
+    }
     return {
         "supplierID": row["supplierID"],
         "Supplier Name": row["Supplier Name"],
@@ -231,8 +239,15 @@ def append_jsonl(path: Path, record: dict) -> None:
 
 
 def next_supplier_id(path: Path) -> str:
-    existing = sum(1 for _ in path.open()) - 1 if path.exists() else 0
-    return f"SUPP_{max(existing, 0) + 1:05d}"
+    """Highest existing numeric suffix + 1 — never reuses a deleted id."""
+    if not path.exists():
+        return "SUPP_00001"
+    ids = [
+        int(r["supplierID"].rsplit("_", 1)[1])
+        for r in csv.DictReader(path.open())
+        if r["supplierID"].startswith("SUPP_")
+    ]
+    return f"SUPP_{(max(ids) if ids else 0) + 1:05d}"
 
 
 def append_csv(path: Path, row: dict) -> None:
