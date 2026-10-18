@@ -35,7 +35,7 @@ const supplierRow = z
     "Supplier Delivery Rating": z.coerce.number().min(0).max(100),
     "Purchase Order Volume (EUR)": z.coerce.number().min(0),
     "Sourcing Risk Level": z.enum(["Low", "Medium", "High", "Critical"]),
-    "Last Modified": z.string().default(""),
+    "Last Modified": z.string().nullable().optional(),
     "HQ City": z.string().nullable().optional(),
     "HQ Country": z.string().nullable().optional(),
     Website: z.string().nullable().optional(),
