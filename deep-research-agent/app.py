@@ -7,12 +7,12 @@ Reads credentials from the environment and never prints them:
   TAVILY_API_KEY   - Tavily API key (required, read by the Tavily SDK)
 
 Usage:
-  python app.py [--json] [--jobs N] ["Supplier Name" ["Another Supplier" ...]]
+  python app.py [--json] [--jobs N] [--criteria-jobs M] ["Supplier" ...]
 
-Each supplier is researched by an independent agent worker (own model + search
-tool) and up to --jobs suppliers run in parallel. For each supplier the agent
-researches risk signals via web search, then a structured-extraction call maps
-the evidence onto the supplier-risk CSV schema. Rows are appended to
+Two levels of parallelism: --jobs suppliers run at once (default 2), and each
+supplier's research is fanned out to --criteria-jobs focused sub-agents, one
+per risk-criteria group (default 4). A structured-extraction call then maps
+the combined evidence onto the supplier-risk CSV schema. Rows are appended to
 output/suppliers.csv and printed as a table (or emitted as JSON with --json).
 """
 
@@ -28,6 +28,9 @@ from pathlib import Path
 from typing import Sequence
 
 from schema import (
+    ComplexityChoice,
+    ScoredDimension,
+    SourcingRiskChoice,
     SupplierRiskScores,
     append_csv,
     append_jsonl,
@@ -66,6 +69,110 @@ RESEARCH_PROMPT = (
     "and governance issues, and supply-chain/sub-tier visibility. Cite a "
     "source for every material finding."
 )
+
+# Each group is investigated by an independent sub-agent that searches in
+# parallel; the briefs are combined into one evidence pack for scoring.
+CRITERIA_GROUPS = [
+    (
+        "Compliance & governance",
+        "sanctions-list hits, regulatory investigations, antitrust/compliance "
+        "violations, ownership structure, PEP exposure, governance controversies",
+    ),
+    (
+        "Financial & market",
+        "financial health, credit rating, earnings and debt signals, market "
+        "sentiment, analyst views, share-price movement",
+    ),
+    (
+        "ESG & environmental",
+        "ESG ratings, environmental exposure, climate/deforestation/CBAM "
+        "risks, sustainability report findings",
+    ),
+    (
+        "Operations, quality & safety",
+        "production disruptions, product recalls and quality defects, safety "
+        "incidents, operational resilience, sub-tier supplier visibility, "
+        "supply-chain complexity",
+    ),
+    (
+        "Labor",
+        "strikes, layoffs, union and works-council disputes, workforce "
+        "stability, labor-law issues",
+    ),
+    (
+        "Cyber security",
+        "data breaches, ransomware, security incidents, IT/OT security "
+        "posture, disclosed vulnerabilities",
+    ),
+    (
+        "Geopolitical & political",
+        "country risk of HQ and key sites, sanctions and export-control "
+        "exposure, political stability, tariffs and trade restrictions",
+    ),
+    (
+        "Media & external intelligence",
+        "adverse media coverage, reputational signals, industry benchmark "
+        "position, external risk-intelligence mentions",
+    ),
+]
+
+# Maps each criteria group to the schema fields its sub-agent must score.
+GROUP_FIELDS = {
+    "Compliance & governance": ["compliance_risk", "governance_risk"],
+    "Financial & market": ["financial_health", "credit_rating", "market_sentiment"],
+    "ESG & environmental": ["esg_performance", "environmental_exposure"],
+    "Operations, quality & safety": [
+        "operational_resilience",
+        "quality_risk",
+        "safety_incident",
+        "sub_tier_visibility",
+        "supply_chain_complexity",
+    ],
+    "Labor": ["labor_stability"],
+    "Cyber security": ["digital_security"],
+    "Geopolitical & political": ["geopolitical_risk", "political_stability"],
+    "Media & external intelligence": [
+        "media_sentiment",
+        "external_intelligence",
+        "industry_benchmark",
+        "sourcing_risk_level",
+    ],
+}
+
+CRITERIA_PROMPT = (
+    "You are researching supplier risk for procurement due diligence. "
+    "Investigate ONLY this area for the supplier '{supplier}': {focus}. "
+    "Use web search. Return a tight bullet brief of concrete findings with a "
+    "source link for each — do not cover other risk areas."
+)
+
+CRITERIA_SCORE_PROMPT = """\
+You are scoring supplier risk for "{supplier}". Investigate ONLY this area:
+{focus}. Use web search to find concrete evidence, then END YOUR REPLY with a
+fenced ```json object mapping each of these fields to its result:
+
+{spec}
+
+Rules: score fields use {{"score": <int 0-100, higher = more risk>,
+"reason": <1-2 sentences citing findings>, "sources": [<urls>]}}; enum fields
+use {{"value": <one of the listed values>, "reason": ..., "sources": [...]}}.
+'health'/'stability'/'visibility'/'performance' dimensions are still risk
+scores — a healthy supplier scores LOW. No evidence → middle-range score and
+say so in the reason. Nothing after the JSON block.\
+"""
+
+_FIELD_MODELS = {
+    "sourcing_risk_level": SourcingRiskChoice,
+    "supply_chain_complexity": ComplexityChoice,
+}
+
+
+def _fallback_for(field: str):
+    if field == "sourcing_risk_level":
+        return SourcingRiskChoice(value="Medium", reason="scoring failed — default")
+    if field == "supply_chain_complexity":
+        return ComplexityChoice(value="Complex", reason="scoring failed — default")
+    return ScoredDimension(score=50, reason="scoring failed — middle-range default")
 
 EXTRACTION_PROMPT = """\
 You are scoring supplier risk. Below is a research report on the supplier
@@ -127,6 +234,14 @@ def build_agent(model=None, tools=None):
     )
 
 
+def build_react_agent():
+    """Lightweight agent for a single focused research task — fewer model
+    turns than the full deep agent, so criteria briefs finish faster."""
+    from langgraph.prebuilt import create_react_agent
+
+    return create_react_agent(build_model(), tools=build_tools())
+
+
 def _message_content(message) -> str:
     content = getattr(message, "content", message)
     return content if isinstance(content, str) else str(content)
@@ -154,10 +269,75 @@ def invoke_until_text(agent, prompt: str, attempts: int = 3) -> str:
     raise RuntimeError("the agent returned no usable answer — retry the run")
 
 
-def research(supplier: str, agent=None) -> str:
-    """Run the deep research agent on one supplier and return the report text."""
-    agent = agent if agent is not None else build_agent()
-    return invoke_until_text(agent, RESEARCH_PROMPT.format(supplier=supplier))
+def research(supplier: str, agent=None, criteria_jobs: int = 4) -> str:
+    """Research one supplier: a focused sub-agent per criteria group runs in
+    parallel and their briefs are combined into one evidence pack."""
+    if agent is not None:
+        return invoke_until_text(agent, RESEARCH_PROMPT.format(supplier=supplier))
+    # Scores are discarded here — callers needing scores use score_supplier.
+    return _combined_brief(supplier, criteria_jobs)
+
+
+def _combined_brief(supplier: str, criteria_jobs: int = 4) -> str:
+    """Run a criteria sub-agent per group in parallel and join the briefs."""
+
+    def brief(group: tuple[str, str]) -> str:
+        title, focus = group
+        text = invoke_until_text(
+            build_react_agent(),
+            CRITERIA_PROMPT.format(supplier=supplier, focus=focus),
+        )
+        return f"## {title}\n{text}"
+
+    with ThreadPoolExecutor(max_workers=min(criteria_jobs, len(CRITERIA_GROUPS))) as pool:
+        return "\n\n".join(pool.map(brief, CRITERIA_GROUPS))
+
+
+def _field_spec(field: str) -> str:
+    if field == "sourcing_risk_level":
+        return f'"{field}": {{"value": "Low" | "Medium" | "High" | "Critical", "reason": str, "sources": [str]}}'
+    if field == "supply_chain_complexity":
+        return f'"{field}": {{"value": "Simple" | "Moderate" | "Complex" | "Very Complex", "reason": str, "sources": [str]}}'
+    return f'"{field}": {{"score": int 0-100, "reason": str, "sources": [str]}}'
+
+
+def _extract_json(text: str) -> dict:
+    fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+    blob = fenced.group(1) if fenced else None
+    if blob is None:
+        match = re.search(r"\{.*\}", text, re.DOTALL)
+        blob = match.group(0) if match else None
+    if blob is None:
+        raise RuntimeError("no JSON in criteria agent output")
+    return json.loads(blob)
+
+
+def _group_scores(supplier: str, title: str, focus: str) -> dict:
+    """One criteria pipeline: a single sub-agent searches and emits this
+    group's scores directly. Isolated failures degrade to defaults."""
+    fields = GROUP_FIELDS[title]
+    try:
+        prompt = CRITERIA_SCORE_PROMPT.format(
+            supplier=supplier,
+            focus=focus,
+            spec="\n".join(_field_spec(f) for f in fields),
+        )
+        text = invoke_until_text(build_react_agent(), prompt)
+        data = _extract_json(text)
+        return {
+            f: _FIELD_MODELS.get(f, ScoredDimension).model_validate(data[f])
+            for f in fields
+        }
+    except Exception:
+        return {f: _fallback_for(f) for f in fields}
+
+
+def score_supplier(supplier: str, criteria_jobs: int = 4) -> SupplierRiskScores:
+    """Run all criteria pipelines in parallel and merge into the full schema."""
+    with ThreadPoolExecutor(max_workers=min(criteria_jobs, len(CRITERIA_GROUPS))) as pool:
+        groups = list(pool.map(lambda g: _group_scores(supplier, *g), CRITERIA_GROUPS))
+    merged = {field: value for group in groups for field, value in group.items()}
+    return SupplierRiskScores(**merged)
 
 
 def extract_scores(supplier: str, report: str, model=None) -> SupplierRiskScores:
@@ -187,11 +367,15 @@ def process_supplier(
     supplier_id: str | None = None,
     csv_path: Path = OUTPUT_CSV,
     jsonl_path: Path = REASONING_JSONL,
+    criteria_jobs: int = 4,
     agent=None,
     model=None,
 ) -> tuple[dict, dict]:
-    report = research(supplier, agent=agent)
-    scores = extract_scores(supplier, report, model=model)
+    if agent is not None:
+        report = research(supplier, agent=agent, criteria_jobs=criteria_jobs)
+        scores = extract_scores(supplier, report, model=model)
+    else:
+        scores = score_supplier(supplier, criteria_jobs=criteria_jobs)
     with _WRITE_LOCK:
         row = build_row(supplier_id or next_supplier_id(csv_path), supplier, scores)
         reasoning = build_reasoning(row, scores)
@@ -200,25 +384,29 @@ def process_supplier(
     return row, reasoning
 
 
-def _parse_flags(argv: list[str]) -> tuple[bool, int, list[str]]:
-    """Split CLI args into (json_mode, jobs, supplier names)."""
-    json_mode, jobs, suppliers = False, 4, []
+def _parse_flags(argv: list[str]) -> tuple[bool, int, int, list[str]]:
+    """Split CLI args into (json_mode, jobs, criteria_jobs, supplier names)."""
+    json_mode, jobs, criteria_jobs, suppliers = False, 2, 4, []
     it = iter(argv)
     for arg in it:
         if arg == "--json":
             json_mode = True
         elif arg in ("-j", "--jobs"):
-            jobs = int(next(it, "4"))
+            jobs = int(next(it, "2"))
         elif arg.startswith("--jobs="):
             jobs = int(arg.split("=", 1)[1])
+        elif arg == "--criteria-jobs":
+            criteria_jobs = int(next(it, "4"))
+        elif arg.startswith("--criteria-jobs="):
+            criteria_jobs = int(arg.split("=", 1)[1])
         else:
             suppliers.append(arg)
-    return json_mode, max(1, jobs), suppliers
+    return json_mode, max(1, jobs), max(1, criteria_jobs), suppliers
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
-    json_mode, jobs, suppliers = _parse_flags(argv)
+    json_mode, jobs, criteria_jobs, suppliers = _parse_flags(argv)
     suppliers = suppliers or DEFAULT_SUPPLIERS
     # Assign ids up front so parallel workers cannot race on the row count.
     base = _row_count(OUTPUT_CSV)
@@ -226,7 +414,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         with ThreadPoolExecutor(max_workers=min(jobs, len(tasks))) as pool:
             results = list(
-                pool.map(lambda task: process_supplier(task[0], task[1]), tasks)
+                pool.map(
+                    lambda task: process_supplier(
+                        task[0], task[1], criteria_jobs=criteria_jobs
+                    ),
+                    tasks,
+                )
             )
     except RuntimeError as exc:
         print(f"error: {exc}", file=sys.stderr)

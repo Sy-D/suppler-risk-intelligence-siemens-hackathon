@@ -46,12 +46,16 @@ export TAVILY_API_KEY="your-tavily-key"
 ```bash
 python app.py "Robert Bosch GmbH"                # one supplier
 python app.py "Bosch" "Continental" "Schaeffler" # several suppliers, one row each
-python app.py --jobs 8 "A" "B" "C" "D"           # up to 8 in parallel (default 4)
+python app.py --jobs 4 --criteria-jobs 4 "A" "B" # tune both levels
 ```
 
-Each supplier is handled by an independent agent worker with its own model and
-Tavily tool, so several suppliers research in parallel — `--jobs` caps
-concurrency (default 4). Watch Tavily rate limits if you raise it.
+There are two levels of parallelism. Per supplier, the research fans out to
+`--criteria-jobs` focused sub-agents — one per criteria group (compliance,
+financial, ESG, operations/quality/safety, labor, cyber, geopolitical, media) —
+which makes a single run much faster than one monolithic agent pass. Across
+suppliers, `--jobs` controls how many run at once. Concurrency is the product
+of the two (default 2 × 4 = 8 concurrent searches) — watch Tavily rate limits
+if you raise it.
 
 For each supplier the deep agent researches risk signals via Tavily, then a
 second model call maps the evidence onto the risk schema (see `schema.py`).
