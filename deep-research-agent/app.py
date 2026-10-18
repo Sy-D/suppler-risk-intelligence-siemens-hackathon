@@ -484,7 +484,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     json_mode, jobs, criteria_jobs, suppliers = _parse_flags(argv)
     suppliers = suppliers or DEFAULT_SUPPLIERS
     # Assign ids up front so parallel workers cannot race on the row count.
-    base = _row_count(OUTPUT_CSV)
+    base = int(next_supplier_id(OUTPUT_CSV).rsplit("_", 1)[1]) - 1
     tasks = [(name, f"SUPP_{base + i + 1:05d}") for i, name in enumerate(suppliers)]
     try:
         with ThreadPoolExecutor(max_workers=min(jobs, len(tasks))) as pool:
