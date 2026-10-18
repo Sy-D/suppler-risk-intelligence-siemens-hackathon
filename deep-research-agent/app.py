@@ -164,7 +164,8 @@ CRITERIA_PROMPT = (
 
 CRITERIA_SCORE_PROMPT = """\
 You are scoring supplier risk for "{supplier}". Investigate ONLY this area:
-{focus}. Use web search to find concrete evidence, then END YOUR REPLY with a
+{focus}. Use at most 3 focused web searches; if a search fails, answer from
+what you already found instead of retrying. Then END YOUR REPLY with a
 fenced ```json object mapping each of these fields to its result:
 
 {spec}
@@ -244,7 +245,10 @@ def build_tools() -> list:
     from langchain_core.tools import tool
     from langchain_tavily import TavilySearch
 
-    search = TavilySearch(max_results=5, search_depth="advanced")
+    # "basic" is much faster and less rate-limit-prone than "advanced";
+    # override with TAVILY_DEPTH=advanced for deeper crawls.
+    depth = _env_or_default("TAVILY_DEPTH", "basic")
+    search = TavilySearch(max_results=5, search_depth=depth)
 
     @tool("tavily_search")
     def tavily_search(query: str) -> str:
@@ -335,7 +339,7 @@ def _progress_handler_class():
     return ProgressHandler
 
 
-_RECURSION_LIMIT = 12
+_RECURSION_LIMIT = 10
 
 
 def invoke_until_text(agent, prompt: str, attempts: int = 3, label: str = "agent") -> str:
@@ -501,7 +505,7 @@ def process_supplier(
 
 def _parse_flags(argv: list[str]) -> tuple[bool, int, int, str | None, list[str]]:
     """Split CLI args into (json_mode, jobs, criteria_jobs, update_id, names)."""
-    json_mode, jobs, criteria_jobs, update_id, suppliers = False, 2, 2, None, []
+    json_mode, jobs, criteria_jobs, update_id, suppliers = False, 2, 3, None, []
     it = iter(argv)
     for arg in it:
         if arg == "--json":
