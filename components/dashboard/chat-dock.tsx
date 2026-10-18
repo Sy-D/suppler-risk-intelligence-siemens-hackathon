@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react"
 import { useTheme } from "next-themes"
 import { BorderBeam } from "border-beam"
-import { ArrowUp, Sparkles, X } from "lucide-react"
+import { ArrowUp, Maximize2, Minimize2, Sparkles, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { AnswerBlocks } from "@/components/analyst/answer-blocks"
@@ -51,6 +51,7 @@ function Dock({
 }: Omit<React.ComponentProps<typeof ChatDock>, "open">) {
   const [messages, setMessages] = useState<Message[]>([])
   const [draft, setDraft] = useState("")
+  const [full, setFull] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const { resolvedTheme } = useTheme()
@@ -105,30 +106,48 @@ function Dock({
   }, [onClose])
 
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-4 z-40 flex justify-center px-4">
+    <div
+      className={`pointer-events-none fixed z-40 flex justify-center ${
+        full ? "inset-4" : "inset-x-0 bottom-4 px-4"
+      }`}
+    >
       <div
         role="dialog"
         aria-label="Ask your analyst"
-        className="pointer-events-auto w-full max-w-2xl overflow-hidden rounded-2xl border bg-popover shadow-xl motion-safe:animate-dock-in"
+        className={`pointer-events-auto flex w-full flex-col overflow-hidden rounded-2xl border bg-popover shadow-xl motion-safe:animate-dock-in ${
+          full ? "max-w-4xl" : "max-w-2xl"
+        }`}
       >
         <div className="flex items-center justify-between gap-3 border-b px-4 py-2.5">
           <p className="flex items-center gap-2 text-xs font-medium">
             <Sparkles className="size-3.5" />
             Ask your analyst
           </p>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="Close analyst chat"
-            onClick={onClose}
-          >
-            <X />
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={full ? "Exit fullscreen" : "Fullscreen"}
+              onClick={() => setFull((f) => !f)}
+            >
+              {full ? <Minimize2 /> : <Maximize2 />}
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Close analyst chat"
+              onClick={onClose}
+            >
+              <X />
+            </Button>
+          </div>
         </div>
         {messages.length > 0 && (
           <div
             ref={scrollRef}
-            className="max-h-[42svh] space-y-3 overflow-y-auto px-4 py-3"
+            className={`space-y-3 overflow-y-auto px-4 py-3 ${
+              full ? "flex-1" : "max-h-[42svh]"
+            }`}
           >
             {messages.map((message, i) =>
               message.role === "user" ? (
@@ -166,7 +185,7 @@ function Dock({
           <BorderBeam
             size="md"
             theme={resolvedTheme === "light" ? "light" : "dark"}
-            borderRadius={10}
+            borderRadius={999}
             strength={0.85}
             className="min-w-0 flex-1"
           >

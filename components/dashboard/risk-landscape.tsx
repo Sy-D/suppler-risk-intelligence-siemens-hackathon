@@ -8,14 +8,23 @@ export function RiskLandscape({
   suppliers,
   activeId,
   onSelect,
+  onSelectArea,
 }: {
   suppliers: Supplier[]
   activeId?: string
   onSelect: (supplier: Supplier) => void
+  onSelectArea: (ids: string[]) => void
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const { resolvedTheme } = useTheme()
   const [hovered, setHovered] = useState<Supplier | null>(null)
+  const [drag, setDrag] = useState<{
+    x0: number
+    y0: number
+    x1: number
+    y1: number
+  } | null>(null)
+  const draggedRef = useRef(false)
   const drawRef = useRef<(progress: number) => void>(() => {})
   const progressRef = useRef(1)
 
@@ -73,6 +82,35 @@ export function RiskLandscape({
         )
         ctx.fill()
       }
+      if (hovered) {
+        const hx = xOf(hovered)
+        const hy = 8 + ((100 - hovered.delivery) / 45) * (height - 16)
+        const guide = style.getPropertyValue("--muted-foreground").trim()
+        ctx.globalAlpha = 0.55
+        ctx.strokeStyle = guide
+        ctx.lineWidth = 1
+        ctx.setLineDash([4, 4])
+        ctx.beginPath()
+        ctx.moveTo(hx, hy)
+        ctx.lineTo(hx, height - 8)
+        ctx.stroke()
+        ctx.beginPath()
+        ctx.moveTo(8, hy)
+        ctx.lineTo(hx, hy)
+        ctx.stroke()
+        ctx.setLineDash([])
+        ctx.globalAlpha = 1
+        ctx.fillStyle = style.getPropertyValue("--foreground").trim()
+        ctx.font = "11px ui-monospace, monospace"
+        ctx.textAlign = "center"
+        ctx.fillText(`${hovered.risk}`, hx, height - 14)
+        ctx.textAlign = "right"
+        ctx.fillText(
+          `${hovered.delivery.toFixed(0)}%`,
+          hx - 10,
+          hy + 4
+        )
+      }
       const active = suppliers.find((s) => s.id === activeId)
       if (active) {
         const local = ease(
@@ -106,7 +144,7 @@ export function RiskLandscape({
     const observer = new ResizeObserver(() => draw(progressRef.current))
     observer.observe(canvas)
     return () => observer.disconnect()
-  }, [suppliers, resolvedTheme, activeId])
+  }, [suppliers, resolvedTheme, activeId, hovered])
 
   useEffect(() => {
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
@@ -157,12 +195,61 @@ export function RiskLandscape({
               <span key={line} className="w-full border-t border-border/70" />
             ))}
           </div>
+          {drag && (
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute border border-foreground/60 bg-foreground/10"
+              style={{
+                left: Math.min(drag.x0, drag.x1),
+                top: Math.min(drag.y0, drag.y1),
+                width: Math.abs(drag.x1 - drag.x0),
+                height: Math.abs(drag.y1 - drag.y0),
+              }}
+            />
+          )}
           <canvas
             ref={canvasRef}
             className="relative h-full w-full cursor-crosshair touch-manipulation"
             role="img"
-            aria-label={`Risk versus delivery rating of ${suppliers.length.toLocaleString("en-GB")} suppliers. Higher delivery and lower risk are preferable.`}
+            aria-label={`Risk versus delivery rating of ${suppliers.length.toLocaleString("en-GB")} suppliers. Higher delivery and lower risk are preferable. Click a point to inspect it, or drag to select an area.`}
+            onPointerDown={(event) => {
+              const bounds = event.currentTarget.getBoundingClientRect()
+              const x = event.clientX - bounds.left
+              const y = event.clientY - bounds.top
+              try {
+                event.currentTarget.setPointerCapture(event.pointerId)
+              } catch {
+                // synthetic pointers have no active capture target
+              }
+              setDrag({ x0: x, y0: y, x1: x, y1: y })
+            }}
+            onPointerUp={(event) => {
+              if (!drag) return
+              const bounds = event.currentTarget.getBoundingClientRect()
+              const x = event.clientX - bounds.left
+              const y = event.clientY - bounds.top
+              const x0 = Math.min(drag.x0, x)
+              const x1 = Math.max(drag.x0, x)
+              const y0 = Math.min(drag.y0, y)
+              const y1 = Math.max(drag.y0, y)
+              setDrag(null)
+              if (x1 - x0 < 6 && y1 - y0 < 6) return
+              draggedRef.current = true
+              const ids = suppliers
+                .filter((s) => {
+                  const sx = 8 + (s.risk / 100) * (bounds.width - 16)
+                  const sy =
+                    8 + ((100 - s.delivery) / 45) * (bounds.height - 16)
+                  return sx >= x0 && sx <= x1 && sy >= y0 && sy <= y1
+                })
+                .map((s) => s.id)
+              onSelectArea(ids)
+            }}
             onClick={(event) => {
+              if (draggedRef.current) {
+                draggedRef.current = false
+                return
+              }
               const bounds = event.currentTarget.getBoundingClientRect()
               const x = event.clientX - bounds.left
               const y = event.clientY - bounds.top
@@ -181,12 +268,19 @@ export function RiskLandscape({
               }
               if (closest) onSelect(closest)
             }}
-            onPointerLeave={() => setHovered(null)}
+            onPointerLeave={() => {
+              setHovered(null)
+              setDrag(null)
+            }}
             onPointerMove={(event) => {
               const canvas = event.currentTarget
               const bounds = canvas.getBoundingClientRect()
               const x = event.clientX - bounds.left
               const y = event.clientY - bounds.top
+              if (drag) {
+                setDrag((d) => (d ? { ...d, x1: x, y1: y } : d))
+                return
+              }
               let nearest: Supplier | null = null
               let distance = 100
               for (const supplier of suppliers) {
@@ -223,7 +317,7 @@ export function RiskLandscape({
         <span>Lower risk ← Total risk index → Higher risk</span>
         <span>
           {suppliers.length.toLocaleString("en-GB")} suppliers · one dot per
-          supplier · click to inspect
+          supplier · click to inspect · drag to select an area
         </span>
       </figcaption>
     </figure>

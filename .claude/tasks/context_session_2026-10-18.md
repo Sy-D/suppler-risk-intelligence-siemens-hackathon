@@ -48,3 +48,12 @@ Fix: Card-Spin auf 720 ms expo-out verlängert, mehr Zahlen gewrapped, Chart-Dot
 mit Links→Rechts-Stagger-Entrance (rAF im Canvas), Row-Click-Auswahl mit
 Propagation-Stops, Sidebar-Card entfernt, Enter-Animationen in Detail-Panel und
 Vergleichs-Dialog. Details in 001_numberflow-motion-polish.md.
+
+Update 2: border-beam@1.4.1 installiert, Beam um Overlay-Suchfeld + Dock-Input
+(committed + gepusht, 17b4181). Danach Plan 004 (Polish-Batch) komplett:
+Header bereinigt (CSV-Badge + ? weg), Sidebar-Icon-Clipping gefixt, Hero-Labels
+entfernt, MetricCards mit pulse-inner-Beams in 4 Farben (Hover → strength 1),
+Chart-Crosshair + Deselect-Toggle, Tabellen-Header-Checkbox + Deselect-all,
+Sticky-Compare-Bar auf Tabellenbreite, Dock-Beam-Radius gefixt + Fullscreen-
+Button, ComparisonTable extrahiert + /compare?ids=-Fullview-Page.
+Alles uncommitted. Details in 004_polish-batch.md.
