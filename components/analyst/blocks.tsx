@@ -6,6 +6,7 @@ import {
   deliveryFormat,
   exposureFormat,
 } from "@/components/dashboard/animated-number"
+import { MarkdownAnswer } from "@/components/dashboard/markdown-answer"
 import { RiskBadge } from "@/components/dashboard/risk-badge"
 import { RiskBar } from "@/components/dashboard/risk-bar"
 import { riskDimensions } from "@/lib/risk"
@@ -32,9 +33,9 @@ function findSupplier(
 
 export function TextBlock({ block }: { block: BlockOf<"text"> }) {
   return (
-    <p className="text-sm leading-relaxed whitespace-pre-line">
-      {block.markdown}
-    </p>
+    <div className="text-sm leading-relaxed">
+      <MarkdownAnswer>{block.markdown}</MarkdownAnswer>
+    </div>
   )
 }
 

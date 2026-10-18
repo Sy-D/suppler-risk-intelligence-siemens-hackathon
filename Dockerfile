@@ -33,7 +33,8 @@ ENV NODE_ENV=production \
     ANALYST_PYTHON=/usr/local/bin/python3
 
 COPY deep-research-agent/requirements.txt ./deep-research-agent/
-RUN pip install --no-cache-dir -r deep-research-agent/requirements.txt
+# duckdb is needed by scripts/ask.py (analyst) and scripts/create_duckdb.py.
+RUN pip install --no-cache-dir -r deep-research-agent/requirements.txt duckdb==1.5.6
 
 COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=build /app/.next ./.next
@@ -41,6 +42,9 @@ COPY package.json next.config.ts ./
 # data/supplier_risk_dataset.csv is read at request time via DuckDB.
 COPY data ./data
 COPY deep-research-agent/*.py ./deep-research-agent/
+COPY scripts/*.py ./scripts/
+# Build data/suppliers.duckdb for the analyst (scripts/ask.py).
+RUN python3 scripts/create_duckdb.py
 
 # output/ must be writable for the agent's CSV and JSONL results.
 RUN useradd --create-home --uid 1001 app \

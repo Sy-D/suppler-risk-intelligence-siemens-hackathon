@@ -2,7 +2,13 @@
 
 import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
-import { useDeferredValue, useEffect, useMemo, useState } from "react"
+import {
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from "react"
 import { NumberFlowGroup } from "@number-flow/react"
 import { MetalFx } from "metal-fx"
 import { useTheme } from "next-themes"
@@ -56,6 +62,8 @@ import {
 } from "@/components/dashboard/workspace-panels"
 import { CommandSearch } from "./command-search"
 import { ChatDock } from "./chat-dock"
+import { Toaster } from "sonner"
+import { useResearchQueue } from "@/lib/use-research-queue"
 import {
   AnimatedNumber,
   deliveryFormat,
@@ -90,14 +98,19 @@ export function SupplierDashboard({
   suppliers: Supplier[]
 }) {
   const [researched, setResearched] = useState<Supplier[]>([])
+  const { jobs: researchJobs, enqueue: enqueueResearch } = useResearchQueue()
   const suppliers = useMemo(() => {
-    const known = new Set(dataset.map((d) => d.id))
-    return [...researched.filter((r) => !known.has(r.id)), ...dataset]
+    // A freshly re-researched row replaces the stale persisted CSV row.
+    return [
+      ...researched,
+      ...dataset.filter((d) => !researched.some((r) => r.id === d.id)),
+    ]
   }, [researched, dataset])
   const [search, setSearch] = useState("")
   const query = useDeferredValue(search.trim().toLowerCase())
   const [riskFilter, setRiskFilter] = useState("All risk levels")
-  const [sort, setSort] = useState<SortState>(null)
+  // Highest total risk first by default.
+  const [sort, setSort] = useState<SortState>({ key: "risk", direction: "desc" })
   const [tableFilters, setTableFilters] = useState(defaultFilters)
   const [chartFilters, setChartFilters] = useState(defaultFilters)
   const [chartSearch, setChartSearch] = useState("")
@@ -105,6 +118,12 @@ export function SupplierDashboard({
   const [chartRisk, setChartRisk] = useState("All risk levels")
   const [activeSupplier, setActiveSupplier] = useState<Supplier | null>(null)
   const [analystHover, setAnalystHover] = useState(false)
+  // True on the client, false during SSR — gates the client-only MetalFx.
+  const metalMounted = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false
+  )
   const [page, setPage] = useState(0)
   const [selectedIds, setSelectedIds] = useState(() => new Set<string>())
   const [panel, setPanel] = useState<WorkspacePanel>({ kind: "none" })
@@ -366,19 +385,29 @@ export function SupplierDashboard({
               if (!open) setPanel({ kind: "none" })
             }}
             suppliers={suppliers}
+            jobs={researchJobs}
+            onEnqueue={(name, updateId) =>
+              enqueueResearch(name, updateId, {
+                onDone: (supplier) => {
+                  setResearched((previous) =>
+                    previous.some((s) => s.id === supplier.id)
+                      ? previous.map((s) =>
+                          s.id === supplier.id ? supplier : s
+                        )
+                      : [supplier, ...previous]
+                  )
+                  toggleSupplier(supplier.id, true)
+                },
+                onSelect: (supplier) =>
+                  setPanel({ kind: "profile", supplier }),
+              })
+            }
             onSelectExisting={(supplier) => {
               toggleSupplier(supplier.id, true)
               setPanel({ kind: "none" })
             }}
-            onResearched={(supplier) => {
-              setResearched((previous) =>
-                previous.some((s) => s.id === supplier.id)
-                  ? previous
-                  : [supplier, ...previous]
-              )
-              toggleSupplier(supplier.id, true)
-            }}
           />
+          <Toaster position="bottom-right" />
         </>
       }
     >
@@ -387,25 +416,34 @@ export function SupplierDashboard({
             className="mx-auto flex w-full max-w-[1600px] flex-col gap-7 p-4 sm:p-6 lg:p-8"
           >
             <div className="flex flex-wrap items-center justify-end gap-5">
-              <MetalFx
-                preset="chromatic"
-                theme={resolvedTheme === "light" ? "light" : "dark"}
-                strength={analystHover ? 1 : 0.9}
-                glowGain={analystHover ? 1 : 0.7}
-                scale={1.4}
-                className="cursor-pointer rounded-4xl"
-                onMouseEnter={() => setAnalystHover(true)}
-                onMouseLeave={() => setAnalystHover(false)}
-              >
-                <Button
-                  size="lg"
-                  className="cursor-pointer text-inherit! transition-transform duration-150 active:scale-[0.97]"
-                  onClick={() => setChatSeed("")}
+              {/* MetalFx mounts WebGL only on the client; render the plain
+                  button during SSR so hydration does not mismatch. */}
+              {metalMounted ? (
+                <MetalFx
+                  preset="chromatic"
+                  theme={resolvedTheme === "light" ? "light" : "dark"}
+                  strength={analystHover ? 1 : 0.9}
+                  glowGain={analystHover ? 1 : 0.7}
+                  scale={1.4}
+                  className="cursor-pointer rounded-4xl"
+                  onMouseEnter={() => setAnalystHover(true)}
+                  onMouseLeave={() => setAnalystHover(false)}
                 >
+                  <Button
+                    size="lg"
+                    className="cursor-pointer text-inherit! transition-transform duration-150 active:scale-[0.97]"
+                    onClick={() => setChatSeed("")}
+                  >
+                    <Sparkles data-icon="inline-start" />
+                    Ask your analyst
+                  </Button>
+                </MetalFx>
+              ) : (
+                <Button size="lg" onClick={() => setChatSeed("")}>
                   <Sparkles data-icon="inline-start" />
                   Ask your analyst
                 </Button>
-              </MetalFx>
+              )}
             </div>
             <NumberFlowGroup>
               <section
@@ -804,6 +842,8 @@ export function SupplierDashboard({
                               <p className="font-medium">{supplier.name}</p>
                               <p className="mt-1 font-mono text-[11px] text-muted-foreground">
                                 {supplier.id}
+                                {supplier.lastModified &&
+                                  ` · ${supplier.lastModified.slice(0, 10)}`}
                               </p>
                             </TableCell>
                             <TableCell>

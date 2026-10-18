@@ -1,24 +1,20 @@
 "use client"
 
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from "react"
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
 import { useTheme } from "next-themes"
 import { BorderBeam } from "border-beam"
-import { Combobox as ComboboxPrimitive } from "@base-ui/react"
 import {
   ArrowUp,
+  LoaderCircle,
   Maximize2,
   Mic,
   MicOff,
   Minimize2,
   Sparkles,
+  Trash2,
   X,
 } from "lucide-react"
+import { Combobox as ComboboxPrimitive } from "@base-ui/react"
 import { Button } from "@/components/ui/button"
 import {
   Combobox,
@@ -27,15 +23,19 @@ import {
   ComboboxItem,
   ComboboxList,
 } from "@/components/ui/combobox"
-import { AnswerBlocks } from "@/components/analyst/answer-blocks"
-import { composeAnswer } from "@/lib/analyst/compose"
+import { BlockList } from "@/components/analyst/answer-blocks"
+import { SupplierChipsBlock } from "@/components/analyst/blocks"
+import { useAnalystChat } from "@/components/analyst/use-analyst-chat"
+import { MarkdownAnswer } from "@/components/dashboard/markdown-answer"
+import { ActivityLog } from "@/components/dashboard/workspace-panels"
 import { matchSuppliers } from "@/lib/fuzzy-match"
-import type { AnalystAnswer } from "@/lib/analyst/schema"
 import type { Supplier } from "@/lib/supplier-data"
 
-type Message =
-  | { role: "user"; text: string }
-  | { role: "assistant"; answer: AnalystAnswer }
+const mentionPattern = /SUPP_\d{5}/g
+
+function mentionedIds(text: string) {
+  return [...new Set(text.match(mentionPattern))].slice(0, 20)
+}
 
 type SpeechRecognitionResultItem = {
   isFinal: boolean
@@ -236,7 +236,14 @@ function Dock({
   onClose,
   onOpenProfile,
 }: Omit<React.ComponentProps<typeof ChatDock>, "open">) {
-  const [messages, setMessages] = useState<Message[]>([])
+  const {
+    turns,
+    pending,
+    activity,
+    loading,
+    ask: askAnalyst,
+    clear,
+  } = useAnalystChat()
   const [draft, setDraft] = useState("")
   const [full, setFull] = useState(false)
   const [listening, setListening] = useState(false)
@@ -254,6 +261,7 @@ function Dock({
   const phRefs = useRef<(HTMLInputElement | null)[]>([])
   const phFocusRef = useRef(-1)
   const { resolvedTheme } = useTheme()
+  const hasMessages = turns.length > 0 || loading
 
   const firstEmptyPh = template ? template.values.findIndex((v) => !v.trim()) : -1
 
@@ -358,11 +366,14 @@ function Dock({
   }
 
   function ask(question: string) {
-    setMessages((m) => [
-      ...m,
-      { role: "user", text: question },
-      { role: "assistant", answer: composeAnswer(question, suppliers, selected) },
-    ])
+    // The analyst only sees the dataset — name the current selection when
+    // the question refers to it (e.g. "Which selected supplier …").
+    const ids = selected.slice(0, 20).map((s) => s.id)
+    void askAnalyst(
+      /\bselected\b/i.test(question) && ids.length
+        ? `${question} (Selected suppliers: ${ids.join(", ")})`
+        : question
+    )
   }
 
   const seeded = useRef(false)
@@ -380,7 +391,7 @@ function Dock({
       top: scrollRef.current.scrollHeight,
       behavior: "smooth",
     })
-  }, [messages])
+  }, [turns, pending, activity])
 
   // Grow the textarea with the draft, capped at ~6 lines.
   useEffect(() => {
@@ -394,8 +405,6 @@ function Dock({
     function onType(event: KeyboardEvent) {
       if (event.metaKey || event.ctrlKey || event.altKey) return
       if (event.key === "Escape") {
-        if (document.querySelector('[data-slot="combobox-content"][data-open]'))
-          return
         onClose()
         return
       }
@@ -442,6 +451,21 @@ function Dock({
             Ask your analyst
           </p>
           <div className="flex items-center gap-1">
+            {turns.length > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={loading}
+                onClick={() => {
+                  clear()
+                  setDraft("")
+                  inputRef.current?.focus()
+                }}
+              >
+                <Trash2 data-icon="inline-start" />
+                Clear chat
+              </Button>
+            )}
             <Button
               variant="ghost"
               size="icon-sm"
@@ -460,37 +484,65 @@ function Dock({
             </Button>
           </div>
         </div>
-        {messages.length > 0 && (
+        {hasMessages && (
           <div
             ref={scrollRef}
             className={`space-y-3 overflow-y-auto px-4 py-3 ${
               full ? "flex-1" : "max-h-[42svh]"
             }`}
           >
-            {messages.map((message, i) =>
-              message.role === "user" ? (
-                <p
-                  key={i}
-                  className="ml-auto w-fit max-w-[85%] rounded-xl bg-muted px-3 py-2 text-sm motion-safe:animate-detail-in"
-                >
-                  {message.text}
-                </p>
-              ) : (
-                <div
-                  key={i}
-                  className="rounded-xl bg-secondary/60 px-3 py-2.5 motion-safe:animate-detail-in"
-                >
-                  <AnswerBlocks
-                    answer={message.answer}
-                    suppliers={suppliers}
-                    onOpenProfile={onOpenProfile}
-                  />
+            {turns.map((turn, i) => {
+              const ids = turn.failed ? [] : mentionedIds(turn.answer)
+              return (
+                <div key={i} className="space-y-3">
+                  <p className="ml-auto w-fit max-w-[85%] rounded-xl bg-muted px-3 py-2 text-sm motion-safe:animate-detail-in">
+                    {turn.question}
+                  </p>
+                  {turn.failed ? (
+                    <p className="rounded-xl bg-destructive/10 px-3 py-2.5 text-sm whitespace-pre-line text-destructive motion-safe:animate-detail-in">
+                      {turn.answer}
+                    </p>
+                  ) : (
+                    <div className="space-y-3 rounded-xl bg-secondary/60 px-3 py-2.5 text-sm leading-relaxed motion-safe:animate-detail-in">
+                      <MarkdownAnswer>{turn.answer}</MarkdownAnswer>
+                      {turn.blocks?.length ? (
+                        <BlockList
+                          blocks={turn.blocks}
+                          suppliers={suppliers}
+                          onOpenProfile={onOpenProfile}
+                        />
+                      ) : ids.length > 0 && (
+                        <SupplierChipsBlock
+                          block={{ type: "supplier_chips", supplierIds: ids }}
+                          suppliers={suppliers}
+                          onOpenProfile={onOpenProfile}
+                        />
+                      )}
+                    </div>
+                  )}
                 </div>
               )
+            })}
+            {loading && (
+              <div className="space-y-3">
+                <p className="ml-auto w-fit max-w-[85%] rounded-xl bg-muted px-3 py-2 text-sm">
+                  {pending}
+                </p>
+                <div
+                  className="rounded-xl bg-secondary/60 px-3 py-2.5 text-sm"
+                  role="status"
+                >
+                  <p className="flex items-center gap-2">
+                    <LoaderCircle className="size-4 shrink-0 animate-spin" />
+                    Querying the dataset…
+                  </p>
+                  <ActivityLog lines={activity} />
+                </div>
+              </div>
             )}
           </div>
         )}
-        {messages.length === 0 && !template && !draft && (
+        {turns.length === 0 && !loading && !template && !draft && (
           <div className="flex flex-wrap gap-2 border-t px-4 pb-1 pt-3">
             {EXAMPLE_PROMPTS.map((prompt, i) => (
               <button
@@ -517,7 +569,7 @@ function Dock({
               }
             }
             const question = template ? templateText(template) : draft.trim()
-            if (!question) return
+            if (!question || loading) return
             recognitionRef.current?.stop()
             setDraft("")
             setTemplate(null)
@@ -615,7 +667,11 @@ function Dock({
                       event.currentTarget.form?.requestSubmit()
                     }
                   }}
-                  placeholder="Ask about a supplier ID or compare risks…"
+                  placeholder={
+                    turns.length
+                      ? "Ask a follow-up…"
+                      : "Ask about suppliers, risks or a supplier ID…"
+                  }
                   aria-label="Ask the analyst"
                   className="min-h-10 w-full min-w-0 resize-none overflow-y-auto rounded-4xl border border-input bg-input/30 px-3 py-2.5 pr-20 text-base outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 md:text-sm"
                 />
@@ -655,7 +711,7 @@ function Dock({
             size="icon-lg"
             className="size-10"
             aria-label="Send question"
-            disabled={!template && !draft.trim()}
+            disabled={loading || (!template && !draft.trim())}
           >
             <ArrowUp />
           </Button>

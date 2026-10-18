@@ -22,7 +22,9 @@ import json
 import os
 import re
 import sys
+import ast
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Sequence
@@ -34,6 +36,8 @@ from schema import (
     SupplierRiskScores,
     append_csv,
     append_jsonl,
+    upsert_csv,
+    upsert_jsonl,
     build_reasoning,
     build_row,
     next_supplier_id,
@@ -160,7 +164,8 @@ CRITERIA_PROMPT = (
 
 CRITERIA_SCORE_PROMPT = """\
 You are scoring supplier risk for "{supplier}". Investigate ONLY this area:
-{focus}. Use web search to find concrete evidence, then END YOUR REPLY with a
+{focus}. Use at most 3 focused web searches; if a search fails, answer from
+what you already found instead of retrying. Then END YOUR REPLY with a
 fenced ```json object mapping each of these fields to its result:
 
 {spec}
@@ -222,22 +227,53 @@ def _env_or_default(name: str, default: str) -> str:
     return os.environ.get(name) or default
 
 
-def build_model(max_tokens: int | None = None):
+def build_model(max_tokens: int | None = None, fast: bool = False):
     from langchain_nebius import ChatNebius
 
+    # fast=True uses NEBIUS_MODEL_FAST (a smaller/cheaper model) for
+    # repetitive sub-tasks; falls back to the main model when unset.
+    if fast:
+        model = _env_or_default("NEBIUS_MODEL_FAST", "") or _env_or_default(
+            "NEBIUS_MODEL", DEFAULT_MODEL
+        )
+    else:
+        model = _env_or_default("NEBIUS_MODEL", DEFAULT_MODEL)
     return ChatNebius(
-        model=_env_or_default("NEBIUS_MODEL", DEFAULT_MODEL),
+        model=model,
         api_key=_require_env("NEBIUS_API_KEY"),
         base_url=_env_or_default("NEBIUS_BASE_URL", DEFAULT_BASE_URL),
         max_tokens=max_tokens,
     )
 
 
+_SEARCH_LOCK = threading.Lock()
+_SEARCH_MIN_INTERVAL = 1.5
+_last_search_at = [0.0]
+
+
 def build_tools() -> list:
     _require_env("TAVILY_API_KEY")
+    from langchain_core.tools import tool
     from langchain_tavily import TavilySearch
 
-    return [TavilySearch(max_results=5, search_depth="advanced")]
+    # "basic" is much faster and less rate-limit-prone than "advanced";
+    # override with TAVILY_DEPTH=advanced for deeper crawls.
+    depth = _env_or_default("TAVILY_DEPTH", "basic")
+    search = TavilySearch(max_results=5, search_depth=depth)
+
+    @tool("tavily_search")
+    def tavily_search(query: str) -> str:
+        """Search the web for supplier-risk evidence."""
+        # Serialize searches across all worker threads and pace them so
+        # parallel criteria agents cannot stampede the Tavily rate limit.
+        with _SEARCH_LOCK:
+            wait = _SEARCH_MIN_INTERVAL - (time.monotonic() - _last_search_at[0])
+            if wait > 0:
+                time.sleep(wait)
+            _last_search_at[0] = time.monotonic()
+        return search.invoke({"query": query})
+
+    return [tavily_search]
 
 
 def build_agent(model=None, tools=None):
@@ -254,7 +290,7 @@ def build_react_agent():
     turns than the full deep agent, so criteria briefs finish faster."""
     from langgraph.prebuilt import create_react_agent
 
-    return create_react_agent(build_model(), tools=build_tools())
+    return create_react_agent(build_model(fast=True), tools=build_tools())
 
 
 def _message_content(message) -> str:
@@ -290,11 +326,16 @@ def _progress_handler_class():
             self.label = label
 
         def on_tool_start(self, serialized, input_str, **_kwargs) -> None:
-            query = None
             try:
-                query = json.loads(input_str).get("query")
-            except (json.JSONDecodeError, AttributeError):
-                query = None
+                parsed = json.loads(input_str)
+            except (json.JSONDecodeError, TypeError):
+                try:
+                    parsed = ast.literal_eval(input_str)
+                except (ValueError, SyntaxError):
+                    parsed = {}
+            query = parsed.get("query") if isinstance(parsed, dict) else None
+            if query and len(query) > 120:
+                query = query[:117] + "…"
             progress(
                 self.label,
                 f"searching: {query}" if query else "gathering information",
@@ -303,12 +344,23 @@ def _progress_handler_class():
         def on_tool_end(self, output, **_kwargs) -> None:
             progress(self.label, "reading sources")
 
+        def on_tool_error(self, error, **_kwargs) -> None:
+            progress(self.label, "search failed — retrying")
+
     return ProgressHandler
+
+
+_RECURSION_LIMIT = 6
 
 
 def invoke_until_text(agent, prompt: str, attempts: int = 3, label: str = "agent") -> str:
     """Invoke the agent until it produces a clean final text (retry on markup leaks)."""
-    config = {"callbacks": [_progress_handler_class()(label)]}
+    config = {
+        "callbacks": [_progress_handler_class()(label)],
+        # Cap agent turns so a rate-limited search loop fails fast into the
+        # group's fallback instead of burning slow model calls retrying.
+        "recursion_limit": _RECURSION_LIMIT,
+    }
     for _ in range(attempts):
         text = last_report_text(
             agent.invoke(
@@ -320,7 +372,7 @@ def invoke_until_text(agent, prompt: str, attempts: int = 3, label: str = "agent
     raise RuntimeError("the agent returned no usable answer — retry the run")
 
 
-def research(supplier: str, agent=None, criteria_jobs: int = 4) -> str:
+def research(supplier: str, agent=None, criteria_jobs: int = 2) -> str:
     """Research one supplier: a focused sub-agent per criteria group runs in
     parallel and their briefs are combined into one evidence pack."""
     if agent is not None:
@@ -329,7 +381,7 @@ def research(supplier: str, agent=None, criteria_jobs: int = 4) -> str:
     return _combined_brief(supplier, criteria_jobs)
 
 
-def _combined_brief(supplier: str, criteria_jobs: int = 4) -> str:
+def _combined_brief(supplier: str, criteria_jobs: int = 2) -> str:
     """Run a criteria sub-agent per group in parallel and join the briefs."""
 
     def brief(group: tuple[str, str]) -> str:
@@ -392,7 +444,7 @@ def resolve_name(name: str, model=None) -> str:
     """Resolve a casual input ('stadler') to the canonical company name via a
     single cheap model call; falls back to the input unchanged."""
     try:
-        model = model if model is not None else build_model(max_tokens=64)
+        model = model if model is not None else build_model(max_tokens=64, fast=True)
         text = _message_content(
             model.invoke(
                 f'What is the full official name of the company commonly called '
@@ -405,7 +457,7 @@ def resolve_name(name: str, model=None) -> str:
         return name
 
 
-def score_supplier(supplier: str, criteria_jobs: int = 4) -> SupplierRiskScores:
+def score_supplier(supplier: str, criteria_jobs: int = 2) -> SupplierRiskScores:
     """Run all criteria pipelines in parallel and merge into the full schema."""
     with ThreadPoolExecutor(max_workers=min(criteria_jobs, len(CRITERIA_GROUPS))) as pool:
         groups = list(pool.map(lambda g: _group_scores(supplier, *g), CRITERIA_GROUPS))
@@ -440,7 +492,8 @@ def process_supplier(
     supplier_id: str | None = None,
     csv_path: Path = OUTPUT_CSV,
     jsonl_path: Path = REASONING_JSONL,
-    criteria_jobs: int = 4,
+    criteria_jobs: int = 2,
+    update: bool = False,
     agent=None,
     model=None,
 ) -> tuple[dict, dict]:
@@ -452,14 +505,18 @@ def process_supplier(
     with _WRITE_LOCK:
         row = build_row(supplier_id or next_supplier_id(csv_path), supplier, scores)
         reasoning = build_reasoning(row, scores)
-        append_csv(csv_path, row)
-        append_jsonl(jsonl_path, reasoning)
+        if update:
+            upsert_csv(csv_path, row)
+            upsert_jsonl(jsonl_path, reasoning)
+        else:
+            append_csv(csv_path, row)
+            append_jsonl(jsonl_path, reasoning)
     return row, reasoning
 
 
-def _parse_flags(argv: list[str]) -> tuple[bool, int, int, list[str]]:
-    """Split CLI args into (json_mode, jobs, criteria_jobs, supplier names)."""
-    json_mode, jobs, criteria_jobs, suppliers = False, 2, 4, []
+def _parse_flags(argv: list[str]) -> tuple[bool, int, int, str | None, list[str]]:
+    """Split CLI args into (json_mode, jobs, criteria_jobs, update_id, names)."""
+    json_mode, jobs, criteria_jobs, update_id, suppliers = False, 2, 3, None, []
     it = iter(argv)
     for arg in it:
         if arg == "--json":
@@ -472,29 +529,40 @@ def _parse_flags(argv: list[str]) -> tuple[bool, int, int, list[str]]:
             criteria_jobs = int(next(it, "4"))
         elif arg.startswith("--criteria-jobs="):
             criteria_jobs = int(arg.split("=", 1)[1])
+        elif arg == "--update-id":
+            update_id = next(it, None)
+        elif arg.startswith("--update-id="):
+            update_id = arg.split("=", 1)[1]
         else:
             suppliers.append(arg)
-    return json_mode, max(1, jobs), max(1, criteria_jobs), suppliers
+    return json_mode, max(1, jobs), max(1, criteria_jobs), update_id, suppliers
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if "--resolve" in argv:
         argv.remove("--resolve")
-        _json, _j, _c, names = _parse_flags(argv)
+        _json, _j, _c, _u, names = _parse_flags(argv)
         print(json.dumps({"canonical": resolve_name((names or DEFAULT_SUPPLIERS)[0])}))
         return 0
-    json_mode, jobs, criteria_jobs, suppliers = _parse_flags(argv)
+    json_mode, jobs, criteria_jobs, update_id, suppliers = _parse_flags(argv)
     suppliers = suppliers or DEFAULT_SUPPLIERS
-    # Assign ids up front so parallel workers cannot race on the row count.
-    base = _row_count(OUTPUT_CSV)
-    tasks = [(name, f"SUPP_{base + i + 1:05d}") for i, name in enumerate(suppliers)]
+    if update_id:
+        # Refresh an existing row in place instead of appending a new one.
+        tasks = [(suppliers[0], update_id.replace("RSCH_", "SUPP_"))]
+    else:
+        # Assign ids up front so parallel workers cannot race on the row count.
+        base = int(next_supplier_id(OUTPUT_CSV).rsplit("_", 1)[1]) - 1
+        tasks = [(name, f"SUPP_{base + i + 1:05d}") for i, name in enumerate(suppliers)]
     try:
         with ThreadPoolExecutor(max_workers=min(jobs, len(tasks))) as pool:
             results = list(
                 pool.map(
                     lambda task: process_supplier(
-                        task[0], task[1], criteria_jobs=criteria_jobs
+                        task[0],
+                        task[1],
+                        criteria_jobs=criteria_jobs,
+                        update=bool(update_id),
                     ),
                     tasks,
                 )

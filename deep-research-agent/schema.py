@@ -255,10 +255,47 @@ def build_reasoning(row: dict, scores: SupplierRiskScores) -> dict:
     }
 
 
+def upsert_csv(path: Path, row: dict) -> None:
+    """Replace the row with the same supplierID, appending if absent."""
+    rows, replaced = [], False
+    if path.exists():
+        with path.open() as fh:
+            for existing in csv.DictReader(fh):
+                if existing["supplierID"] == row["supplierID"]:
+                    rows.append(row)
+                    replaced = True
+                else:
+                    rows.append(existing)
+    if not replaced:
+        rows.append(row)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=CSV_HEADER)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
 def append_jsonl(path: Path, record: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a") as fh:
         fh.write(json.dumps(record) + "\n")
+
+
+def upsert_jsonl(path: Path, record: dict) -> None:
+    """Replace the reasoning record for the same supplierID."""
+    records, replaced = [], False
+    if path.exists():
+        for line in path.read_text().splitlines():
+            existing = json.loads(line)
+            if existing["supplierID"] == record["supplierID"]:
+                records.append(record)
+                replaced = True
+            else:
+                records.append(existing)
+    if not replaced:
+        records.append(record)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("".join(json.dumps(r) + "\n" for r in records))
 
 
 def next_supplier_id(path: Path) -> str:
@@ -273,8 +310,33 @@ def next_supplier_id(path: Path) -> str:
     return f"SUPP_{(max(ids) if ids else 0) + 1:05d}"
 
 
+def migrate_csv_header(path: Path) -> None:
+    """Rewrite the CSV with the current CSV_HEADER if the schema changed.
+
+    Rows are matched to the old or the new header by their column count;
+    columns missing from a row are left empty, unparseable rows are dropped.
+    """
+    if not path.exists() or path.stat().st_size == 0:
+        return
+    with path.open(newline="") as fh:
+        header, *rows = list(csv.reader(fh))
+    if header == CSV_HEADER:
+        return
+    records = []
+    for values in rows:
+        for fields in (CSV_HEADER, header):
+            if len(values) == len(fields):
+                records.append(dict(zip(fields, values)))
+                break
+    with path.open("w", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=CSV_HEADER, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(records)
+
+
 def append_csv(path: Path, row: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    migrate_csv_header(path)
     write_header = not path.exists() or path.stat().st_size == 0
     with path.open("a", newline="") as fh:
         writer = csv.DictWriter(fh, fieldnames=CSV_HEADER)

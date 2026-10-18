@@ -6,10 +6,9 @@ import {
   deliveryFormat,
   exposureFormat,
 } from "./animated-number"
-import { useState } from "react"
+import { Fragment, useState } from "react"
 import Link from "next/link"
 import {
-  ArrowUp,
   BookOpen,
   CheckCircle2,
   Expand,
@@ -17,10 +16,10 @@ import {
   Globe,
   LoaderCircle,
   Play,
+  RefreshCw,
   Search,
   Sparkles,
 } from "lucide-react"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -30,13 +29,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet"
 import {
   Table,
   TableBody,
@@ -49,8 +41,54 @@ import { RiskBadge } from "@/components/dashboard/risk-badge"
 import { riskDimensionGroups, riskDimensions } from "@/lib/risk"
 import { streamAgent } from "@/lib/agent-events"
 import { matchSuppliers } from "@/lib/fuzzy-match"
-import { concentrationWarnings } from "@/lib/concentration"
+import type { ResearchJob } from "@/lib/use-research-queue"
 import type { Supplier } from "@/lib/supplier-data"
+import { concentrationWarnings } from "@/lib/concentration"
+
+const DERIVED_PREFIXES = [
+  "derived from",
+  "internal ERP",
+  "auto-assigned",
+  "CLI input",
+  "UTC timestamp",
+]
+
+function domainOf(url: string): string {
+  try {
+    return new URL(url).hostname
+  } catch {
+    return url
+  }
+}
+
+function SourceIcons({ sources }: { sources: string[] }) {
+  if (!sources.length) return null
+  return (
+    <span className="inline-flex translate-y-0.5 items-center gap-1 pl-1 align-baseline">
+      {sources.map((url) => {
+        const domain = domainOf(url)
+        return (
+          <a
+            key={url}
+            href={url}
+            target="_blank"
+            rel="noreferrer"
+            title={domain}
+            aria-label={domain}
+            className="inline-flex opacity-70 transition-opacity hover:opacity-100"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={`https://www.google.com/s2/favicons?domain=${domain}&sz=16`}
+              alt={domain}
+              className="size-3.5 rounded-sm"
+            />
+          </a>
+        )
+      })}
+    </span>
+  )
+}
 
 export function ConcentrationAlerts({ suppliers }: { suppliers: Supplier[] }) {
   const warnings = concentrationWarnings(suppliers)
@@ -98,7 +136,7 @@ export function ActivityLog({ lines }: { lines: string[] }) {
       {lines.map((line, i) => (
         <li key={i} className="flex items-start gap-1.5">
           <StepIcon line={line} />
-          <span className="min-w-0 truncate">{line}</span>
+          <span className="min-w-0 break-words">{line}</span>
         </li>
       ))}
     </ul>
@@ -223,8 +261,8 @@ export function ComparisonTable({ suppliers }: { suppliers: Supplier[] }) {
                 ))}
               </TableRow>
               {riskDimensionGroups.map((group) => (
-                <>
-                  <TableRow key={group.label}>
+                <Fragment key={group.label}>
+                  <TableRow>
                     <TableCell
                       colSpan={suppliers.length + 1}
                       className="sticky left-0 z-10 bg-muted/40 pt-4 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground"
@@ -248,7 +286,7 @@ export function ComparisonTable({ suppliers }: { suppliers: Supplier[] }) {
                       })}
                     </TableRow>
                   ))}
-                </>
+                </Fragment>
               ))}
               <TableRow>
                 <TableCell className="sticky left-0 z-10 bg-popover text-muted-foreground">
@@ -300,175 +338,38 @@ export function ComparisonTable({ suppliers }: { suppliers: Supplier[] }) {
   )
 }
 
-export function AnalystSheet({
-  open,
-  onOpenChange,
-}: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-}) {
-  const [question, setQuestion] = useState("")
-  const [answer, setAnswer] = useState("")
-  const [loading, setLoading] = useState(false)
-  const [activity, setActivity] = useState<string[]>([])
-  const prompts = [
-    "What are the biggest current risk signals for Continental AG?",
-    "Which recent events raise the risk of sourcing semiconductors from Nexperia?",
-  ]
-  async function ask(text: string) {
-    setQuestion(text)
-    setLoading(true)
-    setAnswer("")
-    setActivity([])
-    try {
-      for await (const event of streamAgent("/api/analyst", {
-        question: text,
-      })) {
-        if (event.type === "progress") {
-          setActivity((prev) => [
-            ...prev.slice(-19),
-            event.text.replace("|", " — "),
-          ])
-        } else if (event.type === "result") {
-          // SAFETY: the route emits {answer} as its result payload.
-          const payload = event.payload as { answer?: string }
-          setAnswer(payload.answer ?? "")
-        } else if (event.type === "error") {
-          throw new Error(event.message)
-        }
-      }
-    } catch (error) {
-      setAnswer(
-        error instanceof Error
-          ? error.message
-          : "The research agent could not be reached."
-      )
-    } finally {
-      setLoading(false)
-    }
-  }
-  return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-full sm:max-w-lg">
-        <SheetHeader className="border-b pr-14">
-          <SheetTitle className="flex items-center gap-2">
-            <Sparkles className="size-4" />
-            Ask your analyst
-          </SheetTitle>
-          <SheetDescription>
-            Explore supplier risks with answers grounded in live web research.
-          </SheetDescription>
-        </SheetHeader>
-        <div className="flex-1 space-y-6 overflow-y-auto px-6 py-2">
-          <Badge variant="secondary">
-            Live research · deep agent + web search
-          </Badge>
-          <div className="space-y-2">
-            {prompts.map((prompt) => (
-              <Button
-                key={prompt}
-                variant="outline"
-                className="h-auto min-h-12 w-full justify-start py-3 text-left whitespace-normal"
-                disabled={loading}
-                onClick={() => ask(prompt)}
-              >
-                {prompt}
-              </Button>
-            ))}
-          </div>
-          {loading ? (
-            <div
-              className="rounded-2xl bg-muted p-5 text-sm leading-relaxed"
-              role="status"
-            >
-              <div className="flex items-start gap-3">
-                <LoaderCircle className="mt-0.5 size-4 shrink-0 animate-spin" />
-                <p>
-                  Researching the web… the analyst plans, searches and reads
-                  sources, so a run takes a minute or two.
-                </p>
-              </div>
-              <ActivityLog lines={activity} />
-            </div>
-          ) : answer ? (
-            <div
-              className="rounded-2xl bg-muted p-5 text-sm leading-relaxed whitespace-pre-line"
-              role="status"
-            >
-              {answer}
-            </div>
-          ) : (
-            <div className="py-10 text-center">
-              <Sparkles className="mx-auto mb-4 size-7 text-muted-foreground" />
-              <h3 className="font-medium">Ask about a real supplier.</h3>
-              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                The analyst researches public sources and returns a cited risk
-                answer.
-              </p>
-            </div>
-          )}
-        </div>
-        <form
-          className="space-y-3 border-t p-6"
-          onSubmit={(event) => {
-            event.preventDefault()
-            if (question.trim() && !loading) ask(question)
-          }}
-        >
-          <label htmlFor="analyst-question" className="text-xs font-medium">
-            Your question
-          </label>
-          <div className="flex gap-2">
-            <Input
-              id="analyst-question"
-              className="h-11 min-w-0 flex-1 text-base md:text-sm"
-              value={question}
-              onChange={(event) => setQuestion(event.target.value)}
-              placeholder="Ask about a supplier…"
-            />
-            <Button
-              type="submit"
-              size="icon-lg"
-              className="size-11"
-              aria-label="Ask question"
-              disabled={!question.trim() || loading}
-            >
-              <ArrowUp />
-            </Button>
-          </div>
-          <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-            <FileText className="size-3" />
-            deep research agent · Nebius Token Factory + Tavily
-          </p>
-        </form>
-      </SheetContent>
-    </Sheet>
-  )
-}
-
 export function ResearchDialog({
   open,
   onOpenChange,
-  onResearched,
+  onEnqueue,
+  jobs,
   onSelectExisting,
   suppliers,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  onResearched: (supplier: Supplier) => void
+  onEnqueue: (name: string, updateId?: string) => string
+  jobs: ResearchJob[]
   onSelectExisting: (supplier: Supplier) => void
   suppliers: Supplier[]
 }) {
   const [name, setName] = useState("")
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState("")
-  const [result, setResult] = useState<Supplier | null>(null)
-  const [activity, setActivity] = useState<string[]>([])
-  const [reasoning, setReasoning] = useState<{
-    columns: Record<string, ColumnInfo>
-  } | null>(null)
+  const [jobId, setJobId] = useState<string | null>(null)
   const [matches, setMatches] = useState<Supplier[] | null>(null)
   const [candidate, setCandidate] = useState<string | null>(null)
+
+  const job = jobId ? jobs.find((j) => j.id === jobId) : undefined
+  const loading = job?.status === "queued" || job?.status === "running"
+  const result = job?.supplier ?? null
+  const reasoning = job?.reasoning ?? null
+  const activity = job?.activity ?? []
+  const error = job?.status === "error" ? job.error ?? "Research failed" : ""
+
+  function start(target: string, updateId?: string) {
+    setMatches(null)
+    setCandidate(null)
+    setJobId(onEnqueue(target, updateId))
+  }
 
   async function checkFirst() {
     const hits = matchSuppliers(name, suppliers)
@@ -492,50 +393,14 @@ export function ResearchDialog({
     } catch {
       // resolver unreachable — proceed with the name as typed
     }
-    run()
-  }
-
-  async function run(override?: string) {
-    const target = override ?? name
-    setMatches(null)
-    setCandidate(null)
-    setLoading(true)
-    setError("")
-    setResult(null)
-    setReasoning(null)
-    setActivity([])
-    try {
-      for await (const event of streamAgent("/api/research", {
-        name: target,
-      })) {
-        if (event.type === "progress") {
-          setActivity((prev) => [
-            ...prev.slice(-19),
-            event.text.replace("|", " — "),
-          ])
-        } else if (event.type === "result") {
-          // SAFETY: the route emits {supplier, reasoning} as its result payload.
-          const payload = event.payload as {
-            supplier: Supplier
-            reasoning: { columns: Record<string, ColumnInfo> }
-          }
-          setResult(payload.supplier)
-          setReasoning(payload.reasoning)
-          onResearched(payload.supplier)
-        } else if (event.type === "error") {
-          throw new Error(event.message)
-        }
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Research failed")
-    } finally {
-      setLoading(false)
-    }
+    start(name)
   }
 
   const evidence = reasoning
     ? Object.entries(reasoning.columns).filter(
-        ([, info]) => info.sources.length > 0
+        ([, info]) =>
+          info.reason &&
+          !DERIVED_PREFIXES.some((prefix) => info.reason.startsWith(prefix))
       )
     : []
 
@@ -584,27 +449,44 @@ export function ResearchDialog({
               anyway.
             </p>
             {matches.map((supplier) => (
-              <button
+              <div
                 key={supplier.id}
-                type="button"
-                className="flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2 text-left hover:bg-background"
-                onClick={() => onSelectExisting(supplier)}
+                className="flex items-center gap-2 rounded-xl border px-3 py-2"
               >
-                <span className="min-w-0">
-                  <span className="block truncate text-sm font-medium">
-                    {supplier.name}
+                <button
+                  type="button"
+                  className="flex min-w-0 flex-1 items-center justify-between gap-3 text-left"
+                  onClick={() => onSelectExisting(supplier)}
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-medium">
+                      {supplier.name}
+                    </span>
+                    <span className="font-mono text-[11px] text-muted-foreground">
+                      {supplier.id}
+                      {supplier.lastModified &&
+                        ` · researched ${supplier.lastModified.slice(0, 10)}`}
+                    </span>
                   </span>
-                  <span className="font-mono text-[11px] text-muted-foreground">
-                    {supplier.id}
-                  </span>
-                </span>
-                <RiskBadge level={supplier.level} />
-              </button>
+                  <RiskBadge level={supplier.level} />
+                </button>
+                {supplier.researched && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    title="Re-run research for this supplier"
+                    onClick={() => start(supplier.name, supplier.id)}
+                  >
+                    <RefreshCw className="size-3.5" />
+                    Update
+                  </Button>
+                )}
+              </div>
             ))}
             <Button
               variant="outline"
               className="w-full"
-              onClick={() => run()}
+              onClick={() => start(name)}
             >
               Not a match — research anyway
             </Button>
@@ -620,7 +502,7 @@ export function ResearchDialog({
                 className="flex-1"
                 onClick={() => {
                   setName(candidate)
-                  run(candidate)
+                  start(candidate)
                 }}
               >
                 Research {candidate}
@@ -628,7 +510,7 @@ export function ResearchDialog({
               <Button
                 variant="outline"
                 className="flex-1"
-                onClick={() => run()}
+                onClick={() => start(name)}
               >
                 Research “{name}”
               </Button>
@@ -643,8 +525,9 @@ export function ResearchDialog({
             <div className="flex items-start gap-3">
               <LoaderCircle className="mt-0.5 size-4 shrink-0 animate-spin" />
               <p>
-                Researching {result?.name ?? name}… {activity.length === 0 &&
-                  "the criteria agents are starting up."}
+                {job?.status === "queued" ? "Queued" : "Researching"}{" "}
+                {job?.name ?? name}…{" "}
+                {activity.length === 0 && "the criteria agents are starting up."}
               </p>
             </div>
             <ActivityLog lines={activity} />
@@ -694,18 +577,8 @@ export function ResearchDialog({
                       </p>
                       <p className="mt-0.5 leading-relaxed text-muted-foreground">
                         {info.reason}
+                        <SourceIcons sources={info.sources} />
                       </p>
-                      {info.sources.map((url) => (
-                        <a
-                          key={url}
-                          href={url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="block truncate text-[11px] text-primary underline-offset-2 hover:underline"
-                        >
-                          {url}
-                        </a>
-                      ))}
                     </li>
                   ))}
                 </ul>

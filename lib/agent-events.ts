@@ -6,6 +6,9 @@ export type AgentEvent =
 export interface AgentRequest {
   name?: string
   question?: string
+  updateId?: string
+  /** Previous analyst turn, used to resolve follow-up questions. */
+  previous?: { question: string; sql: string; answer: string }
 }
 
 /** Client-side reader for the SSE stream emitted by the agent routes. */

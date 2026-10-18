@@ -35,6 +35,7 @@ const supplierRow = z
     "Supplier Delivery Rating": z.coerce.number().min(0).max(100),
     "Purchase Order Volume (EUR)": z.coerce.number().min(0),
     "Sourcing Risk Level": z.enum(["Low", "Medium", "High", "Critical"]),
+    "Last Modified": z.string().nullable().default(""),
     "HQ City": z.string().nullable().optional(),
     "HQ Country": z.string().nullable().optional(),
     Website: z.string().nullable().optional(),
@@ -66,6 +67,7 @@ const supplierRow = z
     delivery: row["Supplier Delivery Rating"],
     exposure: row["Purchase Order Volume (EUR)"],
     sourcing: row["Sourcing Risk Level"],
+    lastModified: row["Last Modified"] || undefined,
     hqCity: row["HQ City"] ?? undefined,
     hqCountry: row["HQ Country"] ?? undefined,
     website: row.Website ?? undefined,
@@ -124,6 +126,7 @@ const COLUMNS = [
   '"Supplier Delivery Rating"',
   '"Purchase Order Volume (EUR)"',
   '"Sourcing Risk Level"',
+  `'' AS "Last Modified"`,
   ...CONTACT_COLUMNS.map((col) => `NULL AS ${col}`),
 ].join(", ")
 
@@ -155,15 +158,21 @@ async function readSupplierRows() {
          "Supplier Name", Total_Risk_Index, Total_Risk_Index_Level,
          ${SCORE_COLUMNS.join(", ")},
          "Supplier Delivery Rating", "Purchase Order Volume (EUR)",
-         "Sourcing Risk Level",
+         "Sourcing Risk Level", "Last Modified",
          ${CONTACT_COLUMNS.map((col) => researchContactExpr(col)).join(", ")}
        FROM read_csv('${RESEARCH_CSV}', all_varchar = true) t`
     : ""
-  const result = await conn.runAndReadAll(
-    `SELECT ${COLUMNS} FROM read_csv('${DATASET_CSV}', all_varchar = true)
-     ${research}`
-  )
-  return result.getRowObjects()
+  const dataset = `SELECT ${COLUMNS} FROM read_csv('${DATASET_CSV}', all_varchar = true)`
+  try {
+    const result = await conn.runAndReadAll(`${dataset} ${research}`)
+    return result.getRowObjects()
+  } catch (error) {
+    if (!research) throw error
+    // A malformed research CSV must not take down the whole dashboard.
+    console.error("Skipping unreadable research CSV:", error)
+    const result = await conn.runAndReadAll(dataset)
+    return result.getRowObjects()
+  }
 }
 
 export const getSuppliers = cache(async () => {
