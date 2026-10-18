@@ -10,10 +10,13 @@ import { useState } from "react"
 import Link from "next/link"
 import {
   ArrowUp,
+  BookOpen,
+  CheckCircle2,
   Expand,
   FileText,
   Globe,
   LoaderCircle,
+  Play,
   Search,
   Sparkles,
 } from "lucide-react"
@@ -43,7 +46,41 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { RiskBadge, riskDimensions } from "@/components/dashboard/risk-badge"
+import { streamAgent } from "@/lib/agent-events"
+import { matchSuppliers } from "@/lib/fuzzy-match"
 import type { Supplier } from "@/lib/supplier-data"
+
+interface ColumnInfo {
+  value: string | number
+  reason: string
+  sources: string[]
+}
+
+function StepIcon({ line }: { line: string }) {
+  const base = "mt-0.5 size-3.5 shrink-0"
+  if (line.endsWith("done"))
+    return <CheckCircle2 className={`${base} text-emerald-500`} />
+  if (line.endsWith("started")) return <Play className={`${base} text-primary`} />
+  if (line.includes("searching"))
+    return <Search className={`${base} text-muted-foreground`} />
+  if (line.includes("reading"))
+    return <BookOpen className={`${base} text-muted-foreground`} />
+  return <Sparkles className={`${base} text-muted-foreground`} />
+}
+
+export function ActivityLog({ lines }: { lines: string[] }) {
+  if (lines.length === 0) return null
+  return (
+    <ul className="mt-3 max-h-40 space-y-1.5 overflow-y-auto border-t pt-3 font-mono text-[11px] text-muted-foreground">
+      {lines.map((line, i) => (
+        <li key={i} className="flex items-start gap-1.5">
+          <StepIcon line={line} />
+          <span className="min-w-0 truncate">{line}</span>
+        </li>
+      ))}
+    </ul>
+  )
+}
 
 export function ComparisonDialog({
   open,
@@ -223,19 +260,6 @@ export function ComparisonTable({ suppliers }: { suppliers: Supplier[] }) {
   )
 }
 
-async function askAnalyst(question: string): Promise<string> {
-  const response = await fetch("/api/analyst", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ question }),
-  })
-  const data = await response.json()
-  if (!response.ok) {
-    throw new Error(data.error ?? "The research agent failed")
-  }
-  return data.answer
-}
-
 export function AnalystSheet({
   open,
   onOpenChange,
@@ -246,6 +270,7 @@ export function AnalystSheet({
   const [question, setQuestion] = useState("")
   const [answer, setAnswer] = useState("")
   const [loading, setLoading] = useState(false)
+  const [activity, setActivity] = useState<string[]>([])
   const prompts = [
     "What are the biggest current risk signals for Continental AG?",
     "Which recent events raise the risk of sourcing semiconductors from Nexperia?",
@@ -254,8 +279,24 @@ export function AnalystSheet({
     setQuestion(text)
     setLoading(true)
     setAnswer("")
+    setActivity([])
     try {
-      setAnswer(await askAnalyst(text))
+      for await (const event of streamAgent("/api/analyst", {
+        question: text,
+      })) {
+        if (event.type === "progress") {
+          setActivity((prev) => [
+            ...prev.slice(-19),
+            event.text.replace("|", " — "),
+          ])
+        } else if (event.type === "result") {
+          // SAFETY: the route emits {answer} as its result payload.
+          const payload = event.payload as { answer?: string }
+          setAnswer(payload.answer ?? "")
+        } else if (event.type === "error") {
+          throw new Error(event.message)
+        }
+      }
     } catch (error) {
       setAnswer(
         error instanceof Error
@@ -297,14 +338,17 @@ export function AnalystSheet({
           </div>
           {loading ? (
             <div
-              className="flex items-start gap-3 rounded-2xl bg-muted p-5 text-sm leading-relaxed"
+              className="rounded-2xl bg-muted p-5 text-sm leading-relaxed"
               role="status"
             >
-              <LoaderCircle className="mt-0.5 size-4 shrink-0 animate-spin" />
-              <p>
-                Researching the web… the analyst plans, searches and reads
-                sources, so a run takes a minute or two.
-              </p>
+              <div className="flex items-start gap-3">
+                <LoaderCircle className="mt-0.5 size-4 shrink-0 animate-spin" />
+                <p>
+                  Researching the web… the analyst plans, searches and reads
+                  sources, so a run takes a minute or two.
+                </p>
+              </div>
+              <ActivityLog lines={activity} />
             </div>
           ) : answer ? (
             <div
@@ -366,36 +410,94 @@ export function ResearchDialog({
   open,
   onOpenChange,
   onResearched,
+  onSelectExisting,
+  suppliers,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   onResearched: (supplier: Supplier) => void
+  onSelectExisting: (supplier: Supplier) => void
+  suppliers: Supplier[]
 }) {
   const [name, setName] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [result, setResult] = useState<Supplier | null>(null)
+  const [activity, setActivity] = useState<string[]>([])
+  const [reasoning, setReasoning] = useState<{
+    columns: Record<string, ColumnInfo>
+  } | null>(null)
+  const [matches, setMatches] = useState<Supplier[] | null>(null)
+  const [candidate, setCandidate] = useState<string | null>(null)
 
-  async function run() {
-    setLoading(true)
-    setError("")
-    setResult(null)
+  async function checkFirst() {
+    const hits = matchSuppliers(name, suppliers)
+    if (hits.length) {
+      setMatches(hits)
+      return
+    }
     try {
-      const response = await fetch("/api/research", {
+      const response = await fetch("/api/resolve", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name }),
       })
       const data = await response.json()
-      if (!response.ok) throw new Error(data.error ?? "Research failed")
-      setResult(data.supplier)
-      onResearched(data.supplier)
+      const canonical = String(data.canonical ?? "")
+        .trim()
+      if (canonical && canonical.toLowerCase() !== name.trim().toLowerCase()) {
+        setCandidate(canonical)
+        return
+      }
+    } catch {
+      // resolver unreachable — proceed with the name as typed
+    }
+    run()
+  }
+
+  async function run(override?: string) {
+    const target = override ?? name
+    setMatches(null)
+    setCandidate(null)
+    setLoading(true)
+    setError("")
+    setResult(null)
+    setReasoning(null)
+    setActivity([])
+    try {
+      for await (const event of streamAgent("/api/research", {
+        name: target,
+      })) {
+        if (event.type === "progress") {
+          setActivity((prev) => [
+            ...prev.slice(-19),
+            event.text.replace("|", " — "),
+          ])
+        } else if (event.type === "result") {
+          // SAFETY: the route emits {supplier, reasoning} as its result payload.
+          const payload = event.payload as {
+            supplier: Supplier
+            reasoning: { columns: Record<string, ColumnInfo> }
+          }
+          setResult(payload.supplier)
+          setReasoning(payload.reasoning)
+          onResearched(payload.supplier)
+        } else if (event.type === "error") {
+          throw new Error(event.message)
+        }
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Research failed")
     } finally {
       setLoading(false)
     }
   }
+
+  const evidence = reasoning
+    ? Object.entries(reasoning.columns).filter(
+        ([, info]) => info.sources.length > 0
+      )
+    : []
 
   const topDimensions = result
     ? [...riskDimensions].sort((a, b) => result[b.key] - result[a.key]).slice(0, 3)
@@ -416,14 +518,14 @@ export function ResearchDialog({
           className="flex gap-2"
           onSubmit={(event) => {
             event.preventDefault()
-            if (name.trim() && !loading) run()
+            if (name.trim() && !loading) checkFirst()
           }}
         >
           <Input
             className="h-11 min-w-0 flex-1 text-base md:text-sm"
             value={name}
             onChange={(event) => setName(event.target.value)}
-            placeholder="Company name, e.g. Continental AG"
+            placeholder="Company name or ID, e.g. Continental AG / SUPP_00018"
             disabled={loading}
           />
           <Button
@@ -435,16 +537,77 @@ export function ResearchDialog({
             Research
           </Button>
         </form>
+        {matches ? (
+          <div className="space-y-2 rounded-2xl bg-muted p-4">
+            <p className="text-xs font-medium">
+              Already in your dataset — pick a match to select it, or research
+              anyway.
+            </p>
+            {matches.map((supplier) => (
+              <button
+                key={supplier.id}
+                type="button"
+                className="flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2 text-left hover:bg-background"
+                onClick={() => onSelectExisting(supplier)}
+              >
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-medium">
+                    {supplier.name}
+                  </span>
+                  <span className="font-mono text-[11px] text-muted-foreground">
+                    {supplier.id}
+                  </span>
+                </span>
+                <RiskBadge level={supplier.level} />
+              </button>
+            ))}
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => run()}
+            >
+              Not a match — research anyway
+            </Button>
+          </div>
+        ) : null}
+        {candidate ? (
+          <div className="space-y-3 rounded-2xl bg-muted p-4">
+            <p className="text-sm">
+              Did you mean <span className="font-semibold">{candidate}</span>?
+            </p>
+            <div className="flex gap-2">
+              <Button
+                className="flex-1"
+                onClick={() => {
+                  setName(candidate)
+                  run(candidate)
+                }}
+              >
+                Research {candidate}
+              </Button>
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => run()}
+              >
+                Research “{name}”
+              </Button>
+            </div>
+          </div>
+        ) : null}
         {loading ? (
           <div
-            className="flex items-start gap-3 rounded-2xl bg-muted p-5 text-sm leading-relaxed"
+            className="rounded-2xl bg-muted p-5 text-sm leading-relaxed"
             role="status"
           >
-            <LoaderCircle className="mt-0.5 size-4 shrink-0 animate-spin" />
-            <p>
-              Researching {name}… the agent plans, searches and reads sources
-              before scoring, so a run takes a minute or two.
-            </p>
+            <div className="flex items-start gap-3">
+              <LoaderCircle className="mt-0.5 size-4 shrink-0 animate-spin" />
+              <p>
+                Researching {result?.name ?? name}… {activity.length === 0 &&
+                  "the criteria agents are starting up."}
+              </p>
+            </div>
+            <ActivityLog lines={activity} />
           </div>
         ) : null}
         {error ? (
@@ -480,6 +643,34 @@ export function ResearchDialog({
                 </div>
               ))}
             </div>
+            {evidence.length > 0 && (
+              <div className="border-t pt-3">
+                <p className="mb-2 text-xs font-medium">Evidence & sources</p>
+                <ul className="max-h-56 space-y-3 overflow-y-auto pr-1">
+                  {evidence.map(([column, info]) => (
+                    <li key={column} className="text-xs">
+                      <p className="font-medium">
+                        {column} = {String(info.value)}
+                      </p>
+                      <p className="mt-0.5 leading-relaxed text-muted-foreground">
+                        {info.reason}
+                      </p>
+                      {info.sources.map((url) => (
+                        <a
+                          key={url}
+                          href={url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="block truncate text-[11px] text-primary underline-offset-2 hover:underline"
+                        >
+                          {url}
+                        </a>
+                      ))}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
               <Globe className="size-3" />
               Added to the supplier list and selected for comparison. Internal
