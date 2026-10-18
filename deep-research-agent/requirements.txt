@@ -1,0 +1,6 @@
+deepagents==0.7.28
+langchain==1.4.6
+langchain-core==1.6.12
+langchain-nebius==0.1.3
+langchain-tavily==0.2.18
+tavily-python==0.8.5
