@@ -27,8 +27,6 @@ tailored to supplier-risk intelligence for this hackathon project.
 cd deep-research-agent
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-# for running the tests:
-pip install -r requirements-dev.txt
 ```
 
 Export both credentials (or copy `.env.example` to `.env` and source it — never
@@ -59,15 +57,6 @@ A good run returns concrete, checkable specifics (named entities, dates,
 figures) and the sources Tavily surfaced. If the output reads like a generic
 summary with no sources, the search tool was never invoked — check that
 `TAVILY_API_KEY` is set in the same environment.
-
-## Tests
-
-Tests stub both the model client and the search tool, so they run without any
-credentials or network access:
-
-```bash
-pytest tests/ -v
-```
 
 ## Docker
 
