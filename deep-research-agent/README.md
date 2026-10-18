@@ -29,9 +29,9 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Copy `.env.example` to `.env` and fill in both keys — `app.py` and
-`analyst.py` load it automatically (already exported variables win). Never
-commit real keys. Alternatively, export them in your shell:
+Copy `.env.example` to `.env` at the repo root and fill in both keys —
+`app.py` and `analyst.py` load it automatically (already exported variables
+win). Never commit real keys. Alternatively, export them in your shell:
 
 ```bash
 export NEBIUS_API_KEY="your-token-factory-key"
@@ -85,23 +85,16 @@ summary with no sources, the search tool was never invoked — check that
 
 ## Docker
 
-The image runs `app.py` as a non-root user; arguments after the image name are
-supplier names. Mount `output/` to keep the CSV and JSONL results:
+The repo-root Dockerfile is an all-in-one image: it bundles Node and Python
+so the dashboard's API routes spawn `app.py` / `analyst.py` in the same
+container (`ANALYST_PYTHON` points at the interpreter). From the repo root:
 
 ```bash
-docker build -t deep-research-agent .
-docker run --rm --env-file .env \
-  -v "$PWD/output:/app/output" \
-  deep-research-agent "Robert Bosch GmbH"
+docker compose up --build   # serves everything on http://localhost:3000
 ```
 
-Without arguments it researches the default supplier. For the analyst mode,
-override the entrypoint:
-
-```bash
-docker run --rm --env-file .env --entrypoint python \
-  deep-research-agent analyst.py "your question here"
-```
+Keys come from `.env` at the repo root; research output persists in the
+`agent-output` volume.
 
 ## Troubleshooting
 

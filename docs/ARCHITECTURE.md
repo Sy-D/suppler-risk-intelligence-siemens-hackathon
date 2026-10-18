@@ -11,10 +11,11 @@ scoring schema, CLI options) see
 flowchart TB
   subgraph Browser
     UI[SupplierDashboard<br>client components]
+    Chat["ChatDock<br>lib/analyst/compose.ts"]
   end
 
   subgraph Next["Next.js 16 server"]
-    Page["app/page.tsx<br>Server Component"]
+    Page["app/page.tsx, app/compare/page.tsx<br>Server Components"]
     Data["lib/supplier-data.ts<br>DuckDB + zod"]
     R1["app/api/research/route.ts"]
     R2["app/api/analyst/route.ts"]
@@ -34,7 +35,8 @@ flowchart TB
   Nebius[Nebius Token Factory<br>MiniMax-M3]
   Tavily[Tavily Search API]
 
-  UI -- "GET /" --> Page --> Data
+  UI -- "GET / , /compare" --> Page --> Data
+  UI -- "question" --> Chat
   Data -- read_csv --> CSV
   Data -- "read_csv (if present)" --> Out
   UI -- "POST {name}" --> R1 -- "child process" --> App
@@ -48,14 +50,16 @@ flowchart TB
 There is no separate backend service and no database server. Next.js serves
 the UI and the API routes; the routes start the Python agent as a child
 process per request and read its stdout. Supplier data lives in CSV files that
-DuckDB queries in-process.
+DuckDB queries in-process. The Docker image (`Dockerfile`, `compose.yml`)
+packages Node.js and Python together for exactly this reason.
 
 ## Data flow
 
 ### Loading the dashboard
 
 1. `app/page.tsx` is a Server Component and calls `getSuppliers()` from
-   `lib/supplier-data.ts`.
+   `lib/supplier-data.ts`. It is rendered per request
+   (`dynamic = "force-dynamic"`), so newly researched rows show up on reload.
 2. DuckDB (embedded, in-memory) runs one SQL query over
    `data/supplier_risk_dataset.csv`. If the agent has written
    `deep-research-agent/output/suppliers.csv`, those rows are added with
@@ -65,7 +69,9 @@ DuckDB queries in-process.
    0–100, levels are `Low | Medium | High | Critical`). Invalid data fails
    loudly instead of rendering wrong numbers.
 4. The validated list is passed to the client component `SupplierDashboard`,
-   which does all filtering, sorting, charting and comparison in the browser.
+   which does all filtering, sorting, charting and selection in the browser.
+   `/compare?ids=…` loads the same data server-side and shows the selected
+   suppliers side by side.
 
 `@duckdb/node-api` is a native module, so it is listed in
 `serverExternalPackages` in `next.config.ts` and loaded with Node's own
@@ -92,16 +98,27 @@ DuckDB queries in-process.
 
 ### Asking the analyst
 
-The "Ask your analyst" sheet sends `POST /api/analyst`; the route runs
-`analyst.py <question>`, which asks the same deep agent for a sourced answer
-and prints it as Markdown.
+There are two analyst paths:
+
+- **Chat dock (in the UI).** The type-anywhere search hands questions to the
+  chat dock. `lib/analyst/compose.ts` answers them in the browser from the
+  loaded supplier data. It handles two question types: financial-risk
+  comparisons (ranking the selected suppliers or the `SUPP_` ids named in the
+  question) and risk profiles of named supplier ids; anything else gets a
+  hint with example questions. Answers follow the
+  block schema in `lib/analyst/schema.ts` (text, tables, callouts) and are
+  rendered by `components/analyst/`. No model or network call is involved.
+- **`POST /api/analyst` (web research).** The route runs
+  `analyst.py <question>`, which asks the deep agent for a sourced answer
+  about any company or risk topic and returns it as Markdown. The route is
+  available as an API; the dashboard currently does not call it.
 
 ## API reference
 
 Both routes are Next.js Route Handlers, accept JSON and return JSON. They need
 the agent's virtual environment at `deep-research-agent/.venv` (or
-`ANALYST_PYTHON` pointing to another interpreter) and valid keys in
-`deep-research-agent/.env`.
+`ANALYST_PYTHON` pointing to another interpreter, as in the Docker image) and
+valid keys in `.env` at the repository root.
 
 ### `POST /api/research`
 
@@ -199,17 +216,21 @@ derived identically.
 
 | Variable | Where | Default | Purpose |
 |---|---|---|---|
-| `NEBIUS_API_KEY` | `deep-research-agent/.env` | — (required) | Token Factory API key |
-| `TAVILY_API_KEY` | `deep-research-agent/.env` | — (required) | Tavily API key |
-| `NEBIUS_MODEL` | `deep-research-agent/.env` | `MiniMaxAI/MiniMax-M3` | Model id |
-| `NEBIUS_BASE_URL` | `deep-research-agent/.env` | `https://api.tokenfactory.nebius.com/v1` | Token Factory endpoint |
-| `ANALYST_PYTHON` | Next.js environment | `.venv/bin/python` | Interpreter the API routes run, relative to `deep-research-agent/` |
+| `NEBIUS_API_KEY` | `.env` (repo root) | — (required) | Token Factory API key |
+| `TAVILY_API_KEY` | `.env` (repo root) | — (required) | Tavily API key |
+| `NEBIUS_MODEL` | `.env` (repo root) | `MiniMaxAI/MiniMax-M3` | Model id |
+| `NEBIUS_BASE_URL` | `.env` (repo root) | `https://api.tokenfactory.nebius.com/v1` | Token Factory endpoint |
+| `ANALYST_PYTHON` | Next.js environment | `.venv/bin/python` | Interpreter the API routes run, relative to `deep-research-agent/`; the Docker image sets `/usr/local/bin/python3` |
 
 ## Design decisions
 
 - **Child process instead of an agent service.** The routes spawn the Python
-  agent directly. That keeps the hackathon setup to one `bun run dev` with no
-  second server to start, at the cost of a Python start-up per request.
+  agent directly. That keeps the setup to one `bun run dev` (or one
+  container) with no second server to start, at the cost of a Python start-up
+  per request.
+- **Dataset questions answered without a model.** The chat dock computes its
+  answers from the loaded data, so they are instant, deterministic and work
+  offline; web research is reserved for real companies.
 - **CSV + DuckDB instead of a database.** The dataset ships as CSV; DuckDB
   queries it in-process with SQL, and researched rows are just another CSV
   in the same query.
@@ -225,10 +246,9 @@ derived identically.
   sources before acting on them.
 - Research runs synchronously inside the HTTP request (one to two minutes,
   5-minute timeout); there is no job queue or progress streaming.
-- Researched rows are stored in a local CSV file, so they exist only on the
-  machine that ran the research.
+- Researched rows are stored in a local CSV file (in Docker: the
+  `agent-output` volume), so they exist only where the research ran.
 - ERP columns (purchase-order volume, delivery rating, order change and
   confirmation rate) stay empty for researched companies.
-- In a production build (`bun run build`) the page `/` is currently
-  prerendered at build time, so researched rows only show up after a reload
-  in `bun run dev`. Run the demo with `bun run dev`.
+- The chat dock understands only the two question types above; open-ended
+  questions need `POST /api/analyst`, which has no UI yet.
