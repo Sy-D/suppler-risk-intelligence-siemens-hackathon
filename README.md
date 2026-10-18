@@ -1,5 +1,21 @@
-<img src="assets/icon.svg" width="64" height="64" alt="">
+# Next.js template
 
-# suppler-risk-intelligence-siemens-hackathon
+This is a Next.js template with shadcn/ui.
 
-Created in [T3 Code](https://t3.codes).
+## Adding components
+
+To add components to your app, run the following command:
+
+```bash
+npx shadcn@latest add button
+```
+
+This will place the ui components in the `components` directory.
+
+## Using components
+
+To use the components in your app, import them as follows:
+
+```tsx
+import { Button } from "@/components/ui/button";
+```
