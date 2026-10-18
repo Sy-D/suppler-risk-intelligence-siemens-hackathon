@@ -91,13 +91,18 @@ def _require_env(name: str) -> str:
     return value
 
 
+def _env_or_default(name: str, default: str) -> str:
+    # An empty value (e.g. a blank line copied from .env.example) falls back too.
+    return os.environ.get(name) or default
+
+
 def build_model(max_tokens: int | None = None):
     from langchain_nebius import ChatNebius
 
     return ChatNebius(
-        model=os.environ.get("NEBIUS_MODEL", DEFAULT_MODEL),
+        model=_env_or_default("NEBIUS_MODEL", DEFAULT_MODEL),
         api_key=_require_env("NEBIUS_API_KEY"),
-        base_url=os.environ.get("NEBIUS_BASE_URL", DEFAULT_BASE_URL),
+        base_url=_env_or_default("NEBIUS_BASE_URL", DEFAULT_BASE_URL),
         max_tokens=max_tokens,
     )
 

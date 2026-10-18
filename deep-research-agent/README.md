@@ -29,8 +29,9 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Export both credentials (or copy `.env.example` to `.env` and source it — never
-commit real keys):
+Copy `.env.example` to `.env` and fill in both keys — `app.py` and
+`analyst.py` load it automatically (already exported variables win). Never
+commit real keys. Alternatively, export them in your shell:
 
 ```bash
 export NEBIUS_API_KEY="your-token-factory-key"
@@ -84,20 +85,22 @@ summary with no sources, the search tool was never invoked — check that
 
 ## Docker
 
+The image runs `app.py` as a non-root user; arguments after the image name are
+supplier names. Mount `output/` to keep the CSV and JSONL results:
+
 ```bash
 docker build -t deep-research-agent .
-docker run --rm \
-  -e NEBIUS_API_KEY -e TAVILY_API_KEY \
-  -e NEBIUS_BASE_URL -e NEBIUS_MODEL \
-  deep-research-agent
+docker run --rm --env-file .env \
+  -v "$PWD/output:/app/output" \
+  deep-research-agent "Robert Bosch GmbH"
 ```
 
-The container runs one research pass for the default question and exits. Pass a
-question as an argument to override it:
+Without arguments it researches the default supplier. For the analyst mode,
+override the entrypoint:
 
 ```bash
-docker run --rm -e NEBIUS_API_KEY -e TAVILY_API_KEY \
-  deep-research-agent "your question here"
+docker run --rm --env-file .env --entrypoint python \
+  deep-research-agent analyst.py "your question here"
 ```
 
 ## Troubleshooting

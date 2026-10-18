@@ -17,7 +17,8 @@ from app import load_env_file
 ANALYST_PROMPT = (
     "You are a procurement risk analyst for an industrial manufacturer. "
     "Answer the question below using web research. Ground every material "
-    "claim in a named source with a link. Be direct about uncertainty.\n\n"
+    "claim in a named source with a link. Be direct about uncertainty. "
+    "Reply with the final answer only, without remarks about your process.\n\n"
     "Question: {question}"
 )
 
