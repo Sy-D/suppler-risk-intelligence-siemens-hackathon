@@ -224,11 +224,19 @@ def _env_or_default(name: str, default: str) -> str:
     return os.environ.get(name) or default
 
 
-def build_model(max_tokens: int | None = None):
+def build_model(max_tokens: int | None = None, fast: bool = False):
     from langchain_nebius import ChatNebius
 
+    # fast=True uses NEBIUS_MODEL_FAST (a smaller/cheaper model) for
+    # repetitive sub-tasks; falls back to the main model when unset.
+    if fast:
+        model = _env_or_default("NEBIUS_MODEL_FAST", "") or _env_or_default(
+            "NEBIUS_MODEL", DEFAULT_MODEL
+        )
+    else:
+        model = _env_or_default("NEBIUS_MODEL", DEFAULT_MODEL)
     return ChatNebius(
-        model=_env_or_default("NEBIUS_MODEL", DEFAULT_MODEL),
+        model=model,
         api_key=_require_env("NEBIUS_API_KEY"),
         base_url=_env_or_default("NEBIUS_BASE_URL", DEFAULT_BASE_URL),
         max_tokens=max_tokens,
@@ -279,7 +287,7 @@ def build_react_agent():
     turns than the full deep agent, so criteria briefs finish faster."""
     from langgraph.prebuilt import create_react_agent
 
-    return create_react_agent(build_model(), tools=build_tools())
+    return create_react_agent(build_model(fast=True), tools=build_tools())
 
 
 def _message_content(message) -> str:
@@ -433,7 +441,7 @@ def resolve_name(name: str, model=None) -> str:
     """Resolve a casual input ('stadler') to the canonical company name via a
     single cheap model call; falls back to the input unchanged."""
     try:
-        model = model if model is not None else build_model(max_tokens=64)
+        model = model if model is not None else build_model(max_tokens=64, fast=True)
         text = _message_content(
             model.invoke(
                 f'What is the full official name of the company commonly called '
