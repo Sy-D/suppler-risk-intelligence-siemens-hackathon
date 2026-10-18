@@ -26,8 +26,11 @@ from typing import Sequence
 from schema import (
     SupplierRiskScores,
     append_csv,
+    append_jsonl,
+    build_reasoning,
     build_row,
     next_supplier_id,
+    render_reasoning,
     render_table,
 )
 
@@ -35,6 +38,7 @@ DEFAULT_BASE_URL = "https://api.tokenfactory.nebius.com/v1"
 DEFAULT_MODEL = "MiniMaxAI/MiniMax-M3"
 DEFAULT_SUPPLIERS = ["Robert Bosch GmbH"]
 OUTPUT_CSV = Path("output/suppliers.csv")
+REASONING_JSONL = Path("output/suppliers_reasoning.jsonl")
 
 RESEARCH_PROMPT = (
     "You are researching supplier risk for procurement due diligence. "
@@ -49,14 +53,19 @@ RESEARCH_PROMPT = (
 
 EXTRACTION_PROMPT = """\
 You are scoring supplier risk. Below is a research report on the supplier
-"{supplier}". Rate the supplier on each dimension of the schema with an
-integer 0-100 risk score where 0 = no discernible risk and 100 = extreme
-risk. Note that 'health', 'stability', 'visibility' and 'performance'
-dimensions are still scored as risk: a healthy supplier scores LOW.
+"{supplier}". For each dimension of the schema return:
+
+- score: integer 0-100 risk score where 0 = no discernible risk and
+  100 = extreme risk. Note that 'health', 'stability', 'visibility' and
+  'performance' dimensions are still scored as risk: a healthy supplier
+  scores LOW.
+- reason: 1-2 sentences citing the concrete findings the score is based on.
+- sources: the source URLs from the report that support the score.
 
 Ground every score in the report's findings; if the report has no evidence
-for a dimension, use a middle-range score. Also set sourcing_risk_level and
-supply_chain_complexity to the most fitting allowed value.
+for a dimension, use a middle-range score, say so in the reason, and leave
+sources empty. Also set sourcing_risk_level and supply_chain_complexity to
+the most fitting allowed value, each with its own reason and sources.
 
 Research report:
 {report}
@@ -70,13 +79,14 @@ def _require_env(name: str) -> str:
     return value
 
 
-def build_model():
+def build_model(max_tokens: int | None = None):
     from langchain_nebius import ChatNebius
 
     return ChatNebius(
         model=os.environ.get("NEBIUS_MODEL", DEFAULT_MODEL),
         api_key=_require_env("NEBIUS_API_KEY"),
         base_url=os.environ.get("NEBIUS_BASE_URL", DEFAULT_BASE_URL),
+        max_tokens=max_tokens,
     )
 
 
@@ -112,7 +122,7 @@ def research(supplier: str, agent=None) -> str:
 
 def extract_scores(supplier: str, report: str, model=None) -> SupplierRiskScores:
     """Map a research report onto the score schema via the chat model."""
-    model = model if model is not None else build_model()
+    model = model if model is not None else build_model(max_tokens=8192)
     prompt = EXTRACTION_PROMPT.format(supplier=supplier, report=report)
     try:
         extractor = model.with_structured_output(SupplierRiskScores)
@@ -125,26 +135,36 @@ def extract_scores(supplier: str, report: str, model=None) -> SupplierRiskScores
         return SupplierRiskScores.model_validate(json.loads(match.group(0)))
 
 
-def process_supplier(supplier: str, csv_path: Path = OUTPUT_CSV, agent=None, model=None) -> dict:
+def process_supplier(
+    supplier: str,
+    csv_path: Path = OUTPUT_CSV,
+    jsonl_path: Path = REASONING_JSONL,
+    agent=None,
+    model=None,
+) -> tuple[dict, dict]:
     report = research(supplier, agent=agent)
     scores = extract_scores(supplier, report, model=model)
     row = build_row(next_supplier_id(csv_path), supplier, scores)
+    reasoning = build_reasoning(row, scores)
     append_csv(csv_path, row)
-    return row
+    append_jsonl(jsonl_path, reasoning)
+    return row, reasoning
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     suppliers = argv or DEFAULT_SUPPLIERS
     try:
-        rows = [process_supplier(name) for name in suppliers]
+        results = [process_supplier(name) for name in suppliers]
     except RuntimeError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    for row in rows:
+    for row, reasoning in results:
         print(render_table(row))
         print()
-    print(f"Deep research report: {len(rows)} supplier row(s) written to {OUTPUT_CSV}")
+        print(render_reasoning(reasoning))
+        print()
+    print(f"Deep research report: {len(results)} supplier row(s) written to {OUTPUT_CSV}")
     return 0
 
 

@@ -9,6 +9,7 @@ order change rate, delivery rating, confirmation rate) are left empty.
 from __future__ import annotations
 
 import csv
+import json
 from pathlib import Path
 from typing import Literal
 
@@ -102,30 +103,51 @@ def level_for(score: int) -> str:
     return "Critical"
 
 
+class ScoredDimension(BaseModel):
+    """One risk dimension: a 0-100 risk score plus its justification and the
+    source URLs that support it."""
+
+    score: int = Field(ge=0, le=100)
+    reason: str = ""
+    sources: list[str] = Field(default_factory=list)
+
+
+class SourcingRiskChoice(BaseModel):
+    value: Literal["Low", "Medium", "High", "Critical"]
+    reason: str = ""
+    sources: list[str] = Field(default_factory=list)
+
+
+class ComplexityChoice(BaseModel):
+    value: Literal["Simple", "Moderate", "Complex", "Very Complex"]
+    reason: str = ""
+    sources: list[str] = Field(default_factory=list)
+
+
 class SupplierRiskScores(BaseModel):
     """Scores produced by the model. All are 0-100 risk scores where higher
     means more risk (including for 'health'/'stability' named dimensions)."""
 
-    industry_benchmark: int = Field(ge=0, le=100)
-    media_sentiment: int = Field(ge=0, le=100)
-    external_intelligence: int = Field(ge=0, le=100)
-    sub_tier_visibility: int = Field(ge=0, le=100)
-    labor_stability: int = Field(ge=0, le=100)
-    financial_health: int = Field(ge=0, le=100)
-    compliance_risk: int = Field(ge=0, le=100)
-    safety_incident: int = Field(ge=0, le=100)
-    environmental_exposure: int = Field(ge=0, le=100)
-    esg_performance: int = Field(ge=0, le=100)
-    digital_security: int = Field(ge=0, le=100)
-    operational_resilience: int = Field(ge=0, le=100)
-    market_sentiment: int = Field(ge=0, le=100)
-    quality_risk: int = Field(ge=0, le=100)
-    governance_risk: int = Field(ge=0, le=100)
-    geopolitical_risk: int = Field(ge=0, le=100)
-    political_stability: int = Field(ge=0, le=100)
-    credit_rating: int = Field(ge=0, le=100)
-    sourcing_risk_level: Literal["Low", "Medium", "High", "Critical"]
-    supply_chain_complexity: Literal["Simple", "Moderate", "Complex", "Very Complex"]
+    industry_benchmark: ScoredDimension
+    media_sentiment: ScoredDimension
+    external_intelligence: ScoredDimension
+    sub_tier_visibility: ScoredDimension
+    labor_stability: ScoredDimension
+    financial_health: ScoredDimension
+    compliance_risk: ScoredDimension
+    safety_incident: ScoredDimension
+    environmental_exposure: ScoredDimension
+    esg_performance: ScoredDimension
+    digital_security: ScoredDimension
+    operational_resilience: ScoredDimension
+    market_sentiment: ScoredDimension
+    quality_risk: ScoredDimension
+    governance_risk: ScoredDimension
+    geopolitical_risk: ScoredDimension
+    political_stability: ScoredDimension
+    credit_rating: ScoredDimension
+    sourcing_risk_level: SourcingRiskChoice
+    supply_chain_complexity: ComplexityChoice
 
 
 _PART_OVERRIDES = {"esg": "ESG"}
@@ -141,12 +163,12 @@ def build_row(supplier_id: str, name: str, scores: SupplierRiskScores) -> dict:
     row = {
         "supplierID": supplier_id,
         "Supplier Name": name,
-        "Sourcing Risk Level": scores.sourcing_risk_level,
-        "Supply Chain Complexity": scores.supply_chain_complexity,
+        "Sourcing Risk Level": scores.sourcing_risk_level.value,
+        "Supply Chain Complexity": scores.supply_chain_complexity.value,
     }
     total = 0
     for field in SCORE_FIELDS:
-        score = getattr(scores, field)
+        score = getattr(scores, field).score
         col = _column_name(field)
         row[col] = score
         row[col.replace("_Score", "_Score_Level")] = level_for(score)
@@ -157,6 +179,55 @@ def build_row(supplier_id: str, name: str, scores: SupplierRiskScores) -> dict:
     for field in INTERNAL_FIELDS:
         row[field] = ""
     return {col: row[col] for col in CSV_HEADER}
+
+
+def build_reasoning(row: dict, scores: SupplierRiskScores) -> dict:
+    """Per-column reasoning + sources for one row, keyed by CSV column name."""
+    columns: dict = {
+        "supplierID": {"value": row["supplierID"], "reason": "auto-assigned sequential ID", "sources": []},
+        "Supplier Name": {"value": row["Supplier Name"], "reason": "CLI input", "sources": []},
+        "Total_Risk_Index": {
+            "value": row["Total_Risk_Index"],
+            "reason": f"mean of the {len(SCORE_FIELDS)} dimension scores",
+            "sources": [],
+        },
+        "Total_Risk_Index_Level": {
+            "value": row["Total_Risk_Index_Level"],
+            "reason": f"derived from Total_Risk_Index={row['Total_Risk_Index']} via level_for()",
+            "sources": [],
+        },
+    }
+    for field in SCORE_FIELDS:
+        dim = getattr(scores, field)
+        col = _column_name(field)
+        columns[col] = {"value": dim.score, "reason": dim.reason, "sources": dim.sources}
+        columns[col.replace("_Score", "_Score_Level")] = {
+            "value": level_for(dim.score),
+            "reason": f"derived from {col}={dim.score} via level_for()",
+            "sources": [],
+        }
+    for field in INTERNAL_FIELDS:
+        columns[field] = {
+            "value": "",
+            "reason": "internal ERP data — not populated by web research",
+            "sources": [],
+        }
+    for col, choice in (
+        ("Sourcing Risk Level", scores.sourcing_risk_level),
+        ("Supply Chain Complexity", scores.supply_chain_complexity),
+    ):
+        columns[col] = {"value": choice.value, "reason": choice.reason, "sources": choice.sources}
+    return {
+        "supplierID": row["supplierID"],
+        "Supplier Name": row["Supplier Name"],
+        "columns": {col: columns[col] for col in CSV_HEADER},
+    }
+
+
+def append_jsonl(path: Path, record: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a") as fh:
+        fh.write(json.dumps(record) + "\n")
 
 
 def next_supplier_id(path: Path) -> str:
@@ -179,4 +250,14 @@ def render_table(row: dict) -> str:
     lines = [f"{'Column':<{width}} | Value", f"{'-' * width}-|-{'-' * 20}"]
     for col in CSV_HEADER:
         lines.append(f"{col:<{width}} | {row[col]}")
+    return "\n".join(lines)
+
+
+def render_reasoning(reasoning: dict) -> str:
+    lines = ["Reasoning & sources:"]
+    for col, info in reasoning["columns"].items():
+        lines.append(f"  {col} = {info['value']}")
+        lines.append(f"    {info['reason']}")
+        for url in info["sources"]:
+            lines.append(f"    - {url}")
     return "\n".join(lines)

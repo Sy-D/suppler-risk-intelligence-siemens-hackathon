@@ -50,8 +50,11 @@ python app.py "Bosch" "Continental" "Schaeffler" # several suppliers, one row ea
 For each supplier the deep agent researches risk signals via Tavily, then a
 second model call maps the evidence onto the risk schema (see `schema.py`).
 Each run appends one row per supplier to `output/suppliers.csv` and prints the
-row as a table. `*_Level` columns and `Total_Risk_Index` are derived in code
-(see `level_for`) so scoring stays consistent. The internal ERP columns
+row as a table followed by the per-column reasoning and source URLs. The same
+reasoning is appended as JSON to `output/suppliers_reasoning.jsonl` — one
+object per supplier with `{value, reason, sources}` for every column, so the
+score trail is auditable. `*_Level` columns and `Total_Risk_Index` are derived
+in code (see `level_for`) so scoring stays consistent. The internal ERP columns
 (`Purchase Order Volume (EUR)`, `Order Change Rate`, `Supplier Delivery
 Rating`, `Order Confirmation Rate`) are left empty — they must come from an
 ERP export, not web research.
