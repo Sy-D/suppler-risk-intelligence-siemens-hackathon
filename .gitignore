@@ -41,4 +41,7 @@ pnpm-debug.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# local AI assistant notes
+/.claude/
+
 scripts/__pycache__
