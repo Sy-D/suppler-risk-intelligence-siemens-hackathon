@@ -1,8 +1,15 @@
 "use client"
 
-import { useEffect, useRef, useState, useSyncExternalStore } from "react"
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react"
 import { useTheme } from "next-themes"
 import { BorderBeam } from "border-beam"
+import { Combobox as ComboboxPrimitive } from "@base-ui/react"
 import {
   ArrowUp,
   Maximize2,
@@ -13,9 +20,16 @@ import {
   X,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
+import {
+  Combobox,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxItem,
+  ComboboxList,
+} from "@/components/ui/combobox"
 import { AnswerBlocks } from "@/components/analyst/answer-blocks"
 import { composeAnswer } from "@/lib/analyst/compose"
+import { matchSuppliers } from "@/lib/fuzzy-match"
 import type { AnalystAnswer } from "@/lib/analyst/schema"
 import type { Supplier } from "@/lib/supplier-data"
 
@@ -100,10 +114,93 @@ function renderPillLabel(raw: string) {
 }
 
 const EXAMPLE_PROMPTS = [
-  "What is the risk of {supplier ID}?",
+  "What is the risk of {supplier}?",
   "Compare {supplier A} with {supplier B} financially",
   "Which selected supplier has the lowest financial risk?",
 ]
+
+const SUPPLIER_PH = /supplier/i
+
+/** Inline template field with supplier typeahead. Accepts a name or an ID —
+ * picking a suggestion writes the supplier's name into the field. The popup
+ * renders in a portal and flips above the field when there is no room below. */
+function SupplierPhInput({
+  value,
+  label,
+  next,
+  suppliers,
+  inputRef,
+  onChange,
+  onFocus,
+}: {
+  value: string
+  label: string
+  next: boolean
+  suppliers: Supplier[]
+  inputRef: (el: HTMLInputElement | null) => void
+  onChange: (value: string) => void
+  onFocus: () => void
+}) {
+  const suggestions = useMemo(() => {
+    const query = value.trim()
+    if (!query) return []
+    const hits = matchSuppliers(query, suppliers, 6)
+    const upper = query.toUpperCase()
+    const byId = suppliers.filter(
+      (s) => s.id.startsWith(upper) && !hits.includes(s)
+    )
+    return [...hits, ...byId].slice(0, 6)
+  }, [value, suppliers])
+
+  return (
+    <Combobox
+      items={suggestions}
+      filter={null}
+      itemToStringLabel={(supplier: Supplier) => supplier.name}
+      inputValue={value}
+      onInputValueChange={(nextValue, details) => {
+        if (details.reason === "input-change") onChange(nextValue)
+      }}
+      onValueChange={(supplier: Supplier | null) => {
+        if (supplier) onChange(supplier.name)
+      }}
+    >
+      <ComboboxPrimitive.Input
+        ref={inputRef}
+        render={
+          <input
+            placeholder={label}
+            size={Math.max(value.length, label.length, 2)}
+            aria-label={label}
+            onFocus={onFocus}
+            className={`mx-0.5 min-w-8 rounded-sm border-b px-0.5 outline-none transition-colors placeholder:text-blue-500/60 ${
+              next
+                ? "border-dashed border-blue-500 bg-blue-500/10"
+                : "border-dashed border-blue-500/50"
+            }`}
+          />
+        }
+      />
+      <ComboboxContent className="w-72">
+        <ComboboxEmpty className="p-3 text-xs">
+          No matching suppliers.
+        </ComboboxEmpty>
+        <ComboboxList>
+          {(supplier: Supplier) => (
+            <ComboboxItem key={supplier.id} value={supplier}>
+              <div className="min-w-0">
+                <p className="truncate">{supplier.name}</p>
+                <p className="font-mono text-[11px] text-muted-foreground">
+                  {supplier.id}
+                </p>
+              </div>
+            </ComboboxItem>
+          )}
+        </ComboboxList>
+      </ComboboxContent>
+    </Combobox>
+  )
+}
 
 export function ChatDock({
   open,
@@ -150,7 +247,7 @@ function Dock({
     () => getSpeechRecognition() !== null,
     () => false
   )
-  const inputRef = useRef<HTMLInputElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null)
   const draftBaseRef = useRef("")
@@ -285,10 +382,20 @@ function Dock({
     })
   }, [messages])
 
+  // Grow the textarea with the draft, capped at ~6 lines.
+  useEffect(() => {
+    const el = inputRef.current
+    if (!el) return
+    el.style.height = "auto"
+    el.style.height = `${Math.min(el.scrollHeight, 136)}px`
+  }, [draft])
+
   useEffect(() => {
     function onType(event: KeyboardEvent) {
       if (event.metaKey || event.ctrlKey || event.altKey) return
       if (event.key === "Escape") {
+        if (document.querySelector('[data-slot="combobox-content"][data-open]'))
+          return
         onClose()
         return
       }
@@ -450,6 +557,26 @@ function Dock({
                       const index = phIndex
                       const value = template.values[index]
                       const next = index === firstEmptyPh
+                      if (SUPPLIER_PH.test(segment.label)) {
+                        return (
+                          <SupplierPhInput
+                            key={i}
+                            value={value}
+                            label={segment.label}
+                            next={next}
+                            suppliers={suppliers}
+                            inputRef={(el) => {
+                              phRefs.current[index] = el
+                            }}
+                            onChange={(nextValue) =>
+                              updatePh(index, nextValue)
+                            }
+                            onFocus={() => {
+                              phFocusRef.current = index
+                            }}
+                          />
+                        )
+                      }
                       return (
                         <input
                           key={i}
@@ -477,16 +604,23 @@ function Dock({
                   })()}
                 </div>
               ) : (
-                <Input
+                <textarea
                   ref={inputRef}
+                  rows={1}
                   value={draft}
                   onChange={(event) => setDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && !event.shiftKey) {
+                      event.preventDefault()
+                      event.currentTarget.form?.requestSubmit()
+                    }
+                  }}
                   placeholder="Ask about a supplier ID or compare risks…"
                   aria-label="Ask the analyst"
-                  className="h-10 w-full pr-20 text-base md:text-sm"
+                  className="min-h-10 w-full min-w-0 resize-none overflow-y-auto rounded-4xl border border-input bg-input/30 px-3 py-2.5 pr-20 text-base outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 md:text-sm"
                 />
               )}
-              <div className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-0.5">
+              <div className="absolute bottom-1.5 right-1.5 flex items-center gap-0.5">
                 {speechSupported && (
                   <Button
                     type="button"

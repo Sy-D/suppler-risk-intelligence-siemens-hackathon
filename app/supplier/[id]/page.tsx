@@ -1,6 +1,7 @@
 import Link from "next/link"
 import { notFound } from "next/navigation"
 import { ArrowLeft, Building2, Globe, Mail, MapPin, Search } from "lucide-react"
+import { AppShell } from "@/components/dashboard/app-shell"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -12,10 +13,11 @@ import {
 import { RiskBadge } from "@/components/dashboard/risk-badge"
 import { RiskBar } from "@/components/dashboard/risk-bar"
 import { DimensionGroups } from "@/components/dashboard/dimension-groups"
+import { HazardPills } from "@/components/dashboard/hazard-pills"
 import { SupplierMap } from "@/components/dashboard/supplier-map"
 import { ClimateStrip } from "@/components/dashboard/climate-strip"
 import { getSuppliers } from "@/lib/supplier-data"
-import { regionForSupplier, HAZARD_META, type HazardKind } from "@/lib/geo"
+import { regionForSupplier } from "@/lib/geo"
 import { euro } from "@/lib/risk"
 
 const deliveryFormat = new Intl.NumberFormat("en-GB", {
@@ -33,21 +35,18 @@ export default async function SupplierPage({
   if (!supplier) notFound()
 
   const region = regionForSupplier(supplier.id)
-  // SAFETY: GeoRegion.hazards keys are exactly the HazardKind union.
-  const hazards = (Object.entries(region.hazards) as [HazardKind, number][])
-    .filter(([, level]) => level > 0)
-    .sort((a, b) => b[1] - a[1])
 
   return (
-    <main className="mx-auto flex w-full max-w-[1200px] flex-col gap-6 p-4 sm:p-6 lg:p-8">
-      <div>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="-ml-3 mb-2"
-          nativeButton={false}
-          render={<Link href="/" />}
-        >
+    <AppShell breadcrumb={["Workspace", "Supplier", supplier.id]}>
+      <main className="mx-auto flex w-full max-w-[1200px] flex-col gap-6 p-4 sm:p-6 lg:p-8">
+        <div className="motion-safe:animate-detail-in">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="-ml-3 mb-2"
+            nativeButton={false}
+            render={<Link href="/" />}
+          >
           <ArrowLeft data-icon="inline-start" />
           Back to workspace
         </Button>
@@ -71,19 +70,19 @@ export default async function SupplierPage({
         </p>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
+      <div
+        className="grid gap-6 motion-safe:animate-detail-in lg:grid-cols-[2fr_1fr]"
+        style={{ animationDelay: "60ms" }}
+      >
         <Card>
           <CardHeader>
             <CardTitle>Location &amp; exposure</CardTitle>
             <CardDescription>
-              {region.seasonLabel}
-              {hazards.length > 0 &&
-                ` · ${hazards
-                  .map(([kind, level]) => `${HAZARD_META[kind].label} ${level}/3`)
-                  .join(", ")}`}
+              Regional hazard profile · level 0–3 per hazard kind
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            <HazardPills region={region} />
             <SupplierMap supplier={supplier} />
             <ClimateStrip
               lat={supplier.lat}
@@ -107,7 +106,12 @@ export default async function SupplierPage({
                   <span className="w-8 text-2xl font-medium tabular-nums">
                     {supplier.risk}
                   </span>
-                  <RiskBar value={supplier.risk} />
+                  <RiskBar
+                    value={supplier.risk}
+                    enter
+                    label="Total risk index"
+                    description="Mean of all 18 scored dimensions — 0 is no risk, 100 is maximum risk."
+                  />
                 </div>
               </div>
               <dl className="grid grid-cols-2 gap-4 border-t pt-4">
@@ -213,11 +217,15 @@ export default async function SupplierPage({
         </div>
       </div>
 
-      <Card>
+      <Card
+        className="motion-safe:animate-detail-in"
+        style={{ animationDelay: "120ms" }}
+      >
         <CardHeader>
           <CardTitle>Risk dimensions</CardTitle>
           <CardDescription>
-            All 18 scored attributes · 0–100, higher is riskier.
+            All 18 scored attributes · 0–100, higher is riskier · hover a bar
+            for details.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -229,6 +237,7 @@ export default async function SupplierPage({
         Location and hazard data are regional estimates for demo purposes.
         Climate: Open-Meteo ERA5.
       </p>
-    </main>
+      </main>
+    </AppShell>
   )
 }

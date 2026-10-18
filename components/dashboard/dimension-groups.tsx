@@ -2,7 +2,7 @@
 
 import { Accordion } from "@base-ui/react/accordion"
 import { ChevronDown } from "lucide-react"
-import { RiskBar } from "./risk-bar"
+import { RiskBar, RiskTrack, riskColor } from "./risk-bar"
 import { riskDimensionGroups } from "@/lib/risk"
 import type { Supplier } from "@/lib/supplier-data"
 
@@ -20,7 +20,7 @@ function groupScore(
 
 /**
  * All 18 risk dimensions, grouped into collapsible sections. The highest-risk
- * group opens by default; bars render statically (no number animation).
+ * group opens by default; bars animate in with a row stagger.
  */
 export function DimensionGroups({ supplier }: { supplier: Supplier }) {
   const worst = riskDimensionGroups.reduce((top, group, index) =>
@@ -41,18 +41,17 @@ export function DimensionGroups({ supplier }: { supplier: Supplier }) {
         return (
           <Accordion.Item key={group.label} value={String(index)}>
             <Accordion.Header>
-              <Accordion.Trigger className="group/trigger flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm font-medium">
+              <Accordion.Trigger className="group/trigger flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm font-medium transition-colors hover:bg-muted/40">
                 <span>{group.label}</span>
                 <span className="flex items-center gap-3">
+                  <span className="hidden w-16 sm:block" aria-hidden="true">
+                    <RiskTrack value={score} />
+                  </span>
                   <span
-                    className="text-xs font-normal tabular-nums"
+                    className="w-11 text-right text-xs font-normal tabular-nums"
                     style={{
                       color:
-                        score >= 66
-                          ? "var(--risk-critical)"
-                          : score >= 50
-                            ? "var(--risk-high)"
-                            : "var(--muted-foreground)",
+                        score >= 50 ? riskColor(score) : "var(--muted-foreground)",
                     }}
                   >
                     {score}/100
@@ -62,17 +61,23 @@ export function DimensionGroups({ supplier }: { supplier: Supplier }) {
               </Accordion.Trigger>
             </Accordion.Header>
             <Accordion.Panel className="px-4 pb-4">
-              <div className="space-y-3 pt-1">
-                {group.dimensions.map((d) => {
+              <div className="space-y-3.5 pt-1.5">
+                {group.dimensions.map((d, i) => {
                   // SAFETY: every dimension key names a numeric score field on Supplier.
                   const value = supplier[d.key] as number
                   return (
                     <div
                       key={d.key}
-                      className="grid grid-cols-[minmax(0,1fr)_7rem] items-center gap-2 text-xs"
+                      className="grid grid-cols-[minmax(0,1fr)_11rem] items-center gap-3 text-xs motion-safe:animate-detail-in"
+                      style={{ animationDelay: `${i * 35}ms` }}
                     >
                       <span className="text-muted-foreground">{d.label}</span>
-                      <RiskBar value={value} />
+                      <RiskBar
+                        value={value}
+                        enter
+                        label={d.label}
+                        description={d.description}
+                      />
                     </div>
                   )
                 })}
