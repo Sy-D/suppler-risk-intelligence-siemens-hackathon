@@ -84,6 +84,10 @@ CSV_HEADER = [
     "Order Confirmation Rate",
     "Sourcing Risk Level",
     "Supply Chain Complexity",
+    "HQ City",
+    "HQ Country",
+    "Website",
+    "Contact Email",
     "Last Modified",
 ]
 
@@ -112,6 +116,15 @@ class ScoredDimension(BaseModel):
     score: int = Field(ge=0, le=100)
     reason: str = ""
     sources: list[str] = Field(default_factory=list)
+
+
+class CompanyProfile(BaseModel):
+    """Public company facts gathered during research. All optional."""
+
+    hq_city: str = ""
+    hq_country: str = ""
+    website: str = ""
+    contact_email: str = ""
 
 
 class SourcingRiskChoice(BaseModel):
@@ -150,6 +163,7 @@ class SupplierRiskScores(BaseModel):
     credit_rating: ScoredDimension
     sourcing_risk_level: SourcingRiskChoice
     supply_chain_complexity: ComplexityChoice
+    company_profile: CompanyProfile = Field(default_factory=CompanyProfile)
 
 
 _PART_OVERRIDES = {"esg": "ESG"}
@@ -180,6 +194,11 @@ def build_row(supplier_id: str, name: str, scores: SupplierRiskScores) -> dict:
     row["Total_Risk_Index_Level"] = level_for(total_index)
     for field in INTERNAL_FIELDS:
         row[field] = ""
+    profile = scores.company_profile
+    row["HQ City"] = profile.hq_city
+    row["HQ Country"] = profile.hq_country
+    row["Website"] = profile.website
+    row["Contact Email"] = profile.contact_email
     row["Last Modified"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
     return {col: row[col] for col in CSV_HEADER}
 
@@ -220,6 +239,10 @@ def build_reasoning(row: dict, scores: SupplierRiskScores) -> dict:
         ("Supply Chain Complexity", scores.supply_chain_complexity),
     ):
         columns[col] = {"value": choice.value, "reason": choice.reason, "sources": choice.sources}
+    columns["HQ City"] = {"value": row["HQ City"], "reason": "public company profile", "sources": []}
+    columns["HQ Country"] = {"value": row["HQ Country"], "reason": "public company profile", "sources": []}
+    columns["Website"] = {"value": row["Website"], "reason": "public company profile", "sources": []}
+    columns["Contact Email"] = {"value": row["Contact Email"], "reason": "public company profile", "sources": []}
     columns["Last Modified"] = {
         "value": row["Last Modified"],
         "reason": "UTC timestamp written when the row was produced",

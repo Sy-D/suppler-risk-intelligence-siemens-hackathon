@@ -8,7 +8,8 @@ import {
   SheetTitle,
   SheetDescription,
 } from "@/components/ui/sheet"
-import { X, MousePointer2 } from "lucide-react"
+import { X, MousePointer2, MapPin, ArrowUpRight } from "lucide-react"
+import Link from "next/link"
 import {
   Card,
   CardHeader,
@@ -22,8 +23,9 @@ import {
   deliveryFormat,
   exposureFormat,
 } from "./animated-number"
-import { RiskBadge, riskDimensions } from "./risk-badge"
+import { RiskBadge } from "./risk-badge"
 import { RiskBar } from "./risk-bar"
+import { DimensionGroups } from "./dimension-groups"
 import type { Supplier } from "@/lib/supplier-data"
 
 function SupplierDetailCard({
@@ -72,7 +74,13 @@ function SupplierDetailCard({
               <h2 className="mb-3 text-lg font-medium text-balance">
                 {supplier.name}
               </h2>
-              <RiskBadge level={supplier.level} />
+              <div className="flex flex-wrap items-center gap-2">
+                <RiskBadge level={supplier.level} />
+                <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                  <MapPin className="size-3" />
+                  {supplier.region}, {supplier.regionCountry}
+                </span>
+              </div>
             </div>
             <div className="space-y-2">
               <p className="text-xs text-muted-foreground">
@@ -88,6 +96,7 @@ function SupplierDetailCard({
                     value={supplier.delivery}
                     format={deliveryFormat}
                     suffix="%"
+                    animate={false}
                   />
                 </dd>
               </div>
@@ -97,6 +106,7 @@ function SupplierDetailCard({
                   <AnimatedNumber
                     value={supplier.exposure}
                     format={exposureFormat}
+                    animate={false}
                   />
                 </dd>
               </div>
@@ -105,16 +115,8 @@ function SupplierDetailCard({
                 <dd className="mt-1">{supplier.sourcing}</dd>
               </div>
             </dl>
-            <div className="space-y-4 border-t pt-5">
-              {riskDimensions.map((d) => (
-                <div
-                  key={d.key}
-                  className="grid grid-cols-[minmax(0,1fr)_7rem] items-center gap-2 text-xs"
-                >
-                  <span className="text-muted-foreground">{d.label}</span>
-                  <RiskBar value={supplier[d.key]} enter />
-                </div>
-              ))}
+            <div className="border-t pt-4">
+              <DimensionGroups supplier={supplier} />
             </div>
             <Button
               className="min-h-11 w-full"
@@ -122,6 +124,16 @@ function SupplierDetailCard({
               onClick={onToggle}
             >
               {selected ? "Remove from selection" : "Add to comparison"}
+            </Button>
+            <Button
+              className="w-full"
+              variant="ghost"
+              size="sm"
+              nativeButton={false}
+              render={<Link href={`/supplier/${supplier.id}`} />}
+            >
+              Full detail view
+              <ArrowUpRight data-icon="inline-end" />
             </Button>
             <p className="text-xs leading-relaxed text-muted-foreground">
               CSV snapshot · All risk scores: 0–100. Total risk weights are not

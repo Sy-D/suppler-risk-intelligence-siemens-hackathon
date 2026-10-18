@@ -45,10 +45,33 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { RiskBadge, riskDimensions } from "@/components/dashboard/risk-badge"
+import { RiskBadge } from "@/components/dashboard/risk-badge"
+import { riskDimensionGroups, riskDimensions } from "@/lib/risk"
 import { streamAgent } from "@/lib/agent-events"
 import { matchSuppliers } from "@/lib/fuzzy-match"
+import { concentrationWarnings } from "@/lib/concentration"
 import type { Supplier } from "@/lib/supplier-data"
+
+export function ConcentrationAlerts({ suppliers }: { suppliers: Supplier[] }) {
+  const warnings = concentrationWarnings(suppliers)
+  if (warnings.length === 0) return null
+  return (
+    <div className="mb-4 space-y-2">
+      {warnings.map((warning) => (
+        <div
+          key={warning.title}
+          className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm"
+        >
+          <span className="mt-1.5 size-2 shrink-0 rounded-full bg-amber-500" />
+          <div>
+            <p className="font-medium">{warning.title}</p>
+            <p className="text-xs text-muted-foreground">{warning.detail}</p>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
 
 interface ColumnInfo {
   value: string | number
@@ -107,7 +130,7 @@ export function ComparisonDialog({
               <DialogDescription>
                 {mode === "compare" ? (
                   <>
-                    <AnimatedNumber value={suppliers.length} /> of 20 suppliers
+                    <AnimatedNumber value={suppliers.length} animate={false} /> of 20 suppliers
                     ·{" "}
                   </>
                 ) : (
@@ -138,7 +161,10 @@ export function ComparisonDialog({
             Select suppliers in the overview to compare their risk profiles.
           </p>
         ) : (
-          <ComparisonTable suppliers={suppliers} />
+          <>
+            <ConcentrationAlerts suppliers={suppliers} />
+            <ComparisonTable suppliers={suppliers} />
+          </>
         )}
         <p className="text-xs text-muted-foreground">
           Source: supplier_risk_dataset.csv plus live web research (RSCH_*
@@ -188,7 +214,7 @@ export function ComparisonTable({ suppliers }: { suppliers: Supplier[] }) {
                     className="text-2xl font-medium tabular-nums motion-safe:animate-detail-in"
                     style={{ animationDelay: `${i * 45}ms` }}
                   >
-                    <AnimatedNumber value={s.risk} respectMotionPreference />
+                    <AnimatedNumber value={s.risk} animate={false} />
                     <span className="text-xs font-normal text-muted-foreground">
                       {" "}
                       / 100
@@ -196,21 +222,33 @@ export function ComparisonTable({ suppliers }: { suppliers: Supplier[] }) {
                   </TableCell>
                 ))}
               </TableRow>
-              {riskDimensions.map((dimension) => (
-                <TableRow key={dimension.key}>
-                  <TableCell className="sticky left-0 z-10 bg-popover text-muted-foreground">
-                    {dimension.label}
-                  </TableCell>
-                  {suppliers.map((s, i) => (
+              {riskDimensionGroups.map((group) => (
+                <>
+                  <TableRow key={group.label}>
                     <TableCell
-                      key={s.id}
-                      className="motion-safe:animate-detail-in"
-                      style={{ animationDelay: `${i * 45}ms` }}
+                      colSpan={suppliers.length + 1}
+                      className="sticky left-0 z-10 bg-muted/40 pt-4 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground"
                     >
-                      <RiskBar value={s[dimension.key]} enter />
+                      {group.label}
                     </TableCell>
+                  </TableRow>
+                  {group.dimensions.map((dimension) => (
+                    <TableRow key={dimension.key}>
+                      <TableCell className="sticky left-0 z-10 bg-popover pl-6 text-muted-foreground">
+                        {dimension.label}
+                      </TableCell>
+                      {suppliers.map((s) => {
+                        // SAFETY: every dimension key names a numeric score field on Supplier.
+                        const value = s[dimension.key] as number
+                        return (
+                          <TableCell key={s.id}>
+                            <RiskBar value={value} />
+                          </TableCell>
+                        )
+                      })}
+                    </TableRow>
                   ))}
-                </TableRow>
+                </>
               ))}
               <TableRow>
                 <TableCell className="sticky left-0 z-10 bg-popover text-muted-foreground">
@@ -229,6 +267,7 @@ export function ComparisonTable({ suppliers }: { suppliers: Supplier[] }) {
                         value={s.delivery}
                         format={deliveryFormat}
                         suffix="%"
+                        animate={false}
                       />
                     )}
                   </TableCell>
@@ -250,6 +289,7 @@ export function ComparisonTable({ suppliers }: { suppliers: Supplier[] }) {
                       <AnimatedNumber
                         value={s.exposure}
                         format={exposureFormat}
+                        animate={false}
                       />
                     )}
                   </TableCell>

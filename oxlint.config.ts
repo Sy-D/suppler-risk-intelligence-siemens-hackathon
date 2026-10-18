@@ -14,6 +14,12 @@ export default defineConfig({
     ".roo/**",
     ".windsurf/**",
     "tools/oxlint/anti-slop/**",
+    // Vendored registry components — not ours to lint.
+    "components/ui/map.tsx",
+    "components/ui/place-autocomplete.tsx",
+    "components/ui/command.tsx",
+    "components/ui/spinner.tsx",
+    "components/ui/button-group.tsx",
   ],
   jsPlugins: [
     { name: "anti-slop", specifier: "./tools/oxlint/anti-slop/index.ts" },
