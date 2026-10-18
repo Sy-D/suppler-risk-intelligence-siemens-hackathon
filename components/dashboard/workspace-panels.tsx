@@ -12,6 +12,7 @@ import {
   BookOpen,
   CheckCircle2,
   Expand,
+  FileSpreadsheet,
   FileText,
   Globe,
   LoaderCircle,
@@ -44,6 +45,7 @@ import { matchSuppliers } from "@/lib/fuzzy-match"
 import type { ResearchJob } from "@/lib/use-research-queue"
 import type { Supplier } from "@/lib/supplier-data"
 import { concentrationWarnings } from "@/lib/concentration"
+import { downloadFile, supplierRows, toCsv, toXlsx } from "@/lib/export"
 
 const DERIVED_PREFIXES = [
   "derived from",
@@ -178,19 +180,49 @@ export function ComparisonDialog({
               </DialogDescription>
             </div>
             {suppliers.length > 0 && (
-              <Button
-                variant="outline"
-                size="sm"
-                nativeButton={false}
-                render={
-                  <Link
-                    href={`/compare?ids=${suppliers.map((s) => s.id).join(",")}`}
-                  />
-                }
-              >
-                <Expand data-icon="inline-start" />
-                Full view
-              </Button>
+              <div className="flex shrink-0 gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    downloadFile(
+                      `supplier-comparison-${new Date().toISOString().slice(0, 10)}.csv`,
+                      toCsv(supplierRows(suppliers)),
+                      "text/csv;charset=utf-8"
+                    )
+                  }
+                >
+                  <FileText data-icon="inline-start" />
+                  CSV
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    downloadFile(
+                      `supplier-comparison-${new Date().toISOString().slice(0, 10)}.xlsx`,
+                      toXlsx(supplierRows(suppliers)),
+                      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
+                  }
+                >
+                  <FileSpreadsheet data-icon="inline-start" />
+                  Excel
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  nativeButton={false}
+                  render={
+                    <Link
+                      href={`/compare?ids=${suppliers.map((s) => s.id).join(",")}`}
+                    />
+                  }
+                >
+                  <Expand data-icon="inline-start" />
+                  Full view
+                </Button>
+              </div>
             )}
           </div>
         </DialogHeader>
