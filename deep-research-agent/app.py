@@ -347,7 +347,7 @@ def _progress_handler_class():
     return ProgressHandler
 
 
-_RECURSION_LIMIT = 10
+_RECURSION_LIMIT = 6
 
 
 def invoke_until_text(agent, prompt: str, attempts: int = 3, label: str = "agent") -> str:
