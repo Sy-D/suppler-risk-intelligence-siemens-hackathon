@@ -35,6 +35,7 @@ const supplierRow = z
     "Supplier Delivery Rating": z.coerce.number().min(0).max(100),
     "Purchase Order Volume (EUR)": z.coerce.number().min(0),
     "Sourcing Risk Level": z.enum(["Low", "Medium", "High", "Critical"]),
+    "Last Modified": z.string().default(""),
     "HQ City": z.string().nullable().optional(),
     "HQ Country": z.string().nullable().optional(),
     Website: z.string().nullable().optional(),
@@ -66,6 +67,7 @@ const supplierRow = z
     delivery: row["Supplier Delivery Rating"],
     exposure: row["Purchase Order Volume (EUR)"],
     sourcing: row["Sourcing Risk Level"],
+    lastModified: row["Last Modified"] || undefined,
     hqCity: row["HQ City"] ?? undefined,
     hqCountry: row["HQ Country"] ?? undefined,
     website: row.Website ?? undefined,
@@ -155,6 +157,15 @@ async function readSupplierRows() {
          "Supplier Name", Total_Risk_Index, Total_Risk_Index_Level,
          ${SCORE_COLUMNS.join(", ")},
          "Supplier Delivery Rating", "Purchase Order Volume (EUR)",
+         "Sourcing Risk Level", "Last Modified"
+       FROM read_csv('${RESEARCH_CSV}', all_varchar = true)`
+    : ""
+  const result = await conn.runAndReadAll(
+    `SELECT ${COLUMNS}, '' AS "Last Modified"
+     FROM read_csv('${DATASET_CSV}', all_varchar = true)
+     ${research}`
+  )
+  return result.getRowObjects()
          "Sourcing Risk Level",
          ${CONTACT_COLUMNS.map((col) => researchContactExpr(col)).join(", ")}
        FROM read_csv('${RESEARCH_CSV}', all_varchar = true) t`

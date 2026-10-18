@@ -78,6 +78,8 @@ import {
 } from "@/components/dashboard/workspace-panels"
 import { CommandSearch } from "./command-search"
 import { ChatDock } from "./chat-dock"
+import { Toaster } from "sonner"
+import { useResearchQueue } from "@/lib/use-research-queue"
 import {
   AnimatedNumber,
   deliveryFormat,
@@ -112,9 +114,13 @@ export function SupplierDashboard({
   suppliers: Supplier[]
 }) {
   const [researched, setResearched] = useState<Supplier[]>([])
+  const { jobs: researchJobs, enqueue: enqueueResearch } = useResearchQueue()
   const suppliers = useMemo(() => {
-    const known = new Set(dataset.map((d) => d.id))
-    return [...researched.filter((r) => !known.has(r.id)), ...dataset]
+    // A freshly re-researched row replaces the stale persisted CSV row.
+    return [
+      ...researched,
+      ...dataset.filter((d) => !researched.some((r) => r.id === d.id)),
+    ]
   }, [researched, dataset])
   const [search, setSearch] = useState("")
   const query = useDeferredValue(search.trim().toLowerCase())
@@ -825,6 +831,8 @@ export function SupplierDashboard({
                               <p className="font-medium">{supplier.name}</p>
                               <p className="mt-1 font-mono text-[11px] text-muted-foreground">
                                 {supplier.id}
+                                {supplier.lastModified &&
+                                  ` · ${supplier.lastModified.slice(0, 10)}`}
                               </p>
                             </TableCell>
                             <TableCell>
@@ -1050,19 +1058,28 @@ export function SupplierDashboard({
             if (!open) setPanel({ kind: "none" })
           }}
           suppliers={suppliers}
+          jobs={researchJobs}
+          onEnqueue={(name, updateId) =>
+            enqueueResearch(name, updateId, {
+              onDone: (supplier) => {
+                setResearched((previous) =>
+                  previous.some((s) => s.id === supplier.id)
+                    ? previous.map((s) =>
+                        s.id === supplier.id ? supplier : s
+                      )
+                    : [supplier, ...previous]
+                )
+                toggleSupplier(supplier.id, true)
+              },
+              onSelect: (supplier) => setPanel({ kind: "profile", supplier }),
+            })
+          }
           onSelectExisting={(supplier) => {
             toggleSupplier(supplier.id, true)
             setPanel({ kind: "none" })
           }}
-          onResearched={(supplier) => {
-            setResearched((previous) =>
-              previous.some((s) => s.id === supplier.id)
-                ? previous
-                : [supplier, ...previous]
-            )
-            toggleSupplier(supplier.id, true)
-          }}
         />
+        <Toaster position="bottom-right" />
       </SidebarProvider>
     </TooltipProvider>
   )

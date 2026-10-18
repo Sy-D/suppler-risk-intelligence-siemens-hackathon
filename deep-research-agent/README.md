@@ -39,6 +39,11 @@ export TAVILY_API_KEY="your-tavily-key"
 # optional overrides:
 # export NEBIUS_BASE_URL="https://api.tokenfactory.nebius.com/v1"
 # export NEBIUS_MODEL="MiniMaxAI/MiniMax-M3"
+# Optional: a smaller/faster model for the criteria sub-agents and name
+# resolution (they fall back to NEBIUS_MODEL when unset):
+# export NEBIUS_MODEL_FAST="Qwen/Qwen3-32B"
+# Optional: Tavily search depth ("basic" default; "advanced" is slower):
+# export TAVILY_DEPTH="basic"
 ```
 
 ## Run
