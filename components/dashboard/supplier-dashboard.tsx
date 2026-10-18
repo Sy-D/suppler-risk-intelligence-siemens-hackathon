@@ -78,6 +78,8 @@ import {
 } from "@/components/dashboard/workspace-panels"
 import { CommandSearch } from "./command-search"
 import { ChatDock } from "./chat-dock"
+import { Toaster } from "sonner"
+import { useResearchQueue } from "@/lib/use-research-queue"
 import {
   AnimatedNumber,
   deliveryFormat,
@@ -112,6 +114,7 @@ export function SupplierDashboard({
   suppliers: Supplier[]
 }) {
   const [researched, setResearched] = useState<Supplier[]>([])
+  const { jobs: researchJobs, enqueue: enqueueResearch } = useResearchQueue()
   const suppliers = useMemo(() => {
     // A freshly re-researched row replaces the stale persisted CSV row.
     return [
@@ -1055,19 +1058,28 @@ export function SupplierDashboard({
             if (!open) setPanel({ kind: "none" })
           }}
           suppliers={suppliers}
+          jobs={researchJobs}
+          onEnqueue={(name, updateId) =>
+            enqueueResearch(name, updateId, {
+              onDone: (supplier) => {
+                setResearched((previous) =>
+                  previous.some((s) => s.id === supplier.id)
+                    ? previous.map((s) =>
+                        s.id === supplier.id ? supplier : s
+                      )
+                    : [supplier, ...previous]
+                )
+                toggleSupplier(supplier.id, true)
+              },
+              onSelect: (supplier) => setPanel({ kind: "profile", supplier }),
+            })
+          }
           onSelectExisting={(supplier) => {
             toggleSupplier(supplier.id, true)
             setPanel({ kind: "none" })
           }}
-          onResearched={(supplier) => {
-            setResearched((previous) =>
-              previous.some((s) => s.id === supplier.id)
-                ? previous.map((s) => (s.id === supplier.id ? supplier : s))
-                : [supplier, ...previous]
-            )
-            toggleSupplier(supplier.id, true)
-          }}
         />
+        <Toaster position="bottom-right" />
       </SidebarProvider>
     </TooltipProvider>
   )

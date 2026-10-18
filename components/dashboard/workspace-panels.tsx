@@ -49,13 +49,8 @@ import {
 import { RiskBadge, riskDimensions } from "@/components/dashboard/risk-badge"
 import { streamAgent } from "@/lib/agent-events"
 import { matchSuppliers } from "@/lib/fuzzy-match"
+import type { ResearchJob } from "@/lib/use-research-queue"
 import type { Supplier } from "@/lib/supplier-data"
-
-interface ColumnInfo {
-  value: string | number
-  reason: string
-  sources: string[]
-}
 
 const DERIVED_PREFIXES = [
   "derived from",
@@ -455,26 +450,35 @@ export function AnalystSheet({
 export function ResearchDialog({
   open,
   onOpenChange,
-  onResearched,
+  onEnqueue,
+  jobs,
   onSelectExisting,
   suppliers,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  onResearched: (supplier: Supplier) => void
+  onEnqueue: (name: string, updateId?: string) => string
+  jobs: ResearchJob[]
   onSelectExisting: (supplier: Supplier) => void
   suppliers: Supplier[]
 }) {
   const [name, setName] = useState("")
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState("")
-  const [result, setResult] = useState<Supplier | null>(null)
-  const [activity, setActivity] = useState<string[]>([])
-  const [reasoning, setReasoning] = useState<{
-    columns: Record<string, ColumnInfo>
-  } | null>(null)
+  const [jobId, setJobId] = useState<string | null>(null)
   const [matches, setMatches] = useState<Supplier[] | null>(null)
   const [candidate, setCandidate] = useState<string | null>(null)
+
+  const job = jobId ? jobs.find((j) => j.id === jobId) : undefined
+  const loading = job?.status === "queued" || job?.status === "running"
+  const result = job?.supplier ?? null
+  const reasoning = job?.reasoning ?? null
+  const activity = job?.activity ?? []
+  const error = job?.status === "error" ? job.error ?? "Research failed" : ""
+
+  function start(target: string, updateId?: string) {
+    setMatches(null)
+    setCandidate(null)
+    setJobId(onEnqueue(target, updateId))
+  }
 
   async function checkFirst() {
     const hits = matchSuppliers(name, suppliers)
@@ -498,46 +502,7 @@ export function ResearchDialog({
     } catch {
       // resolver unreachable — proceed with the name as typed
     }
-    run()
-  }
-
-  async function run(override?: string, updateId?: string) {
-    const target = override ?? name
-    setMatches(null)
-    setCandidate(null)
-    setLoading(true)
-    setError("")
-    setResult(null)
-    setReasoning(null)
-    setActivity([])
-    try {
-      for await (const event of streamAgent("/api/research", {
-        name: target,
-        updateId,
-      })) {
-        if (event.type === "progress") {
-          setActivity((prev) => [
-            ...prev.slice(-19),
-            event.text.replace("|", " — "),
-          ])
-        } else if (event.type === "result") {
-          // SAFETY: the route emits {supplier, reasoning} as its result payload.
-          const payload = event.payload as {
-            supplier: Supplier
-            reasoning: { columns: Record<string, ColumnInfo> }
-          }
-          setResult(payload.supplier)
-          setReasoning(payload.reasoning)
-          onResearched(payload.supplier)
-        } else if (event.type === "error") {
-          throw new Error(event.message)
-        }
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Research failed")
-    } finally {
-      setLoading(false)
-    }
+    start(name)
   }
 
   const evidence = reasoning
@@ -619,7 +584,7 @@ export function ResearchDialog({
                     variant="outline"
                     size="sm"
                     title="Re-run research for this supplier"
-                    onClick={() => run(supplier.name, supplier.id)}
+                    onClick={() => start(supplier.name, supplier.id)}
                   >
                     <RefreshCw className="size-3.5" />
                     Update
@@ -630,7 +595,7 @@ export function ResearchDialog({
             <Button
               variant="outline"
               className="w-full"
-              onClick={() => run()}
+              onClick={() => start(name)}
             >
               Not a match — research anyway
             </Button>
@@ -646,7 +611,7 @@ export function ResearchDialog({
                 className="flex-1"
                 onClick={() => {
                   setName(candidate)
-                  run(candidate)
+                  start(candidate)
                 }}
               >
                 Research {candidate}
@@ -654,7 +619,7 @@ export function ResearchDialog({
               <Button
                 variant="outline"
                 className="flex-1"
-                onClick={() => run()}
+                onClick={() => start(name)}
               >
                 Research “{name}”
               </Button>
@@ -669,8 +634,9 @@ export function ResearchDialog({
             <div className="flex items-start gap-3">
               <LoaderCircle className="mt-0.5 size-4 shrink-0 animate-spin" />
               <p>
-                Researching {result?.name ?? name}… {activity.length === 0 &&
-                  "the criteria agents are starting up."}
+                {job?.status === "queued" ? "Queued" : "Researching"}{" "}
+                {job?.name ?? name}…{" "}
+                {activity.length === 0 && "the criteria agents are starting up."}
               </p>
             </div>
             <ActivityLog lines={activity} />
