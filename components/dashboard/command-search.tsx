@@ -1,6 +1,8 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
+import { useTheme } from "next-themes"
+import { BorderBeam } from "border-beam"
 import { CornerDownLeft, Search, Sparkles } from "lucide-react"
 import { AnimatedNumber, deliveryFormat } from "./animated-number"
 import { RiskBadge } from "./risk-badge"
@@ -44,6 +46,7 @@ function Overlay({
   const [active, setActive] = useState(0)
   const listRef = useRef<HTMLDivElement>(null)
   const trimmed = query.trim()
+  const { resolvedTheme } = useTheme()
 
   const results = useMemo(() => {
     const q = trimmed.toLowerCase()
@@ -89,40 +92,49 @@ function Overlay({
         onClick={onClose}
       />
       <div className="relative w-full max-w-xl overflow-hidden rounded-2xl border bg-popover shadow-xl motion-safe:animate-overlay-in">
-        <div className="flex items-center gap-3 border-b px-4">
-          <Search className="size-4 shrink-0 text-muted-foreground" />
-          <input
-            autoFocus
-            value={query}
-            onChange={(event) => {
-              setQuery(event.target.value)
-              setActive(0)
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "ArrowDown") {
-                event.preventDefault()
-                setActive((a) => Math.min(a + 1, itemCount - 1))
-              } else if (event.key === "ArrowUp") {
-                event.preventDefault()
-                setActive((a) => Math.max(a - 1, 0))
-              } else if (event.key === "Enter") {
-                event.preventDefault()
-                if (event.metaKey || event.ctrlKey) {
-                  if (trimmed) onAsk(trimmed)
-                } else if (itemCount > 0) {
-                  choose(activeIndex)
-                } else if (trimmed) {
-                  onAsk(trimmed)
-                }
-              }
-            }}
-            placeholder="Search suppliers, or ask your analyst…"
-            aria-label="Search suppliers or ask a question"
-            className="h-13 w-full bg-transparent text-base outline-none placeholder:text-muted-foreground md:text-sm"
-          />
-          <kbd className="hidden shrink-0 rounded-md border px-1.5 py-0.5 text-[10px] text-muted-foreground sm:block">
-            esc
-          </kbd>
+        <div className="border-b p-3">
+          <BorderBeam
+            size="md"
+            theme={resolvedTheme === "light" ? "light" : "dark"}
+            borderRadius={12}
+            strength={0.85}
+          >
+            <div className="flex h-12 items-center gap-3 rounded-xl border bg-background px-3.5">
+              <Search className="size-4 shrink-0 text-muted-foreground" />
+              <input
+                autoFocus
+                value={query}
+                onChange={(event) => {
+                  setQuery(event.target.value)
+                  setActive(0)
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "ArrowDown") {
+                    event.preventDefault()
+                    setActive((a) => Math.min(a + 1, itemCount - 1))
+                  } else if (event.key === "ArrowUp") {
+                    event.preventDefault()
+                    setActive((a) => Math.max(a - 1, 0))
+                  } else if (event.key === "Enter") {
+                    event.preventDefault()
+                    if (event.metaKey || event.ctrlKey) {
+                      if (trimmed) onAsk(trimmed)
+                    } else if (itemCount > 0) {
+                      choose(activeIndex)
+                    } else if (trimmed) {
+                      onAsk(trimmed)
+                    }
+                  }
+                }}
+                placeholder="Search suppliers, or ask your analyst…"
+                aria-label="Search suppliers or ask a question"
+                className="h-full w-full bg-transparent text-base outline-none placeholder:text-muted-foreground md:text-sm"
+              />
+              <kbd className="hidden shrink-0 rounded-md border px-1.5 py-0.5 text-[10px] text-muted-foreground sm:block">
+                esc
+              </kbd>
+            </div>
+          </BorderBeam>
         </div>
         <div ref={listRef} className="max-h-72 overflow-y-auto p-2">
           {results.map((supplier, i) => (

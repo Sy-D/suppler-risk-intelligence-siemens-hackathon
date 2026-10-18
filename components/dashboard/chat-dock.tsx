@@ -1,6 +1,8 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
+import { useTheme } from "next-themes"
+import { BorderBeam } from "border-beam"
 import { ArrowUp, Sparkles, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -51,6 +53,7 @@ function Dock({
   const [draft, setDraft] = useState("")
   const inputRef = useRef<HTMLInputElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const { resolvedTheme } = useTheme()
 
   function ask(question: string) {
     setMessages((m) => [
@@ -160,14 +163,22 @@ function Dock({
             ask(question)
           }}
         >
-          <Input
-            ref={inputRef}
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            placeholder="Ask about a supplier ID or compare risks…"
-            aria-label="Ask the analyst"
-            className="h-10 min-w-0 flex-1 text-base md:text-sm"
-          />
+          <BorderBeam
+            size="md"
+            theme={resolvedTheme === "light" ? "light" : "dark"}
+            borderRadius={10}
+            strength={0.85}
+            className="min-w-0 flex-1"
+          >
+            <Input
+              ref={inputRef}
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              placeholder="Ask about a supplier ID or compare risks…"
+              aria-label="Ask the analyst"
+              className="h-10 w-full text-base md:text-sm"
+            />
+          </BorderBeam>
           <Button
             type="submit"
             size="icon-lg"

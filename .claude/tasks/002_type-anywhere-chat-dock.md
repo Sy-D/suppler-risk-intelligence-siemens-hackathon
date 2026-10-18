@@ -37,3 +37,9 @@ Branch: `feat/type-anywhere-chat`
 - Anti-Slop-Regel: keine Type-Assertions — `instanceof HTMLElement` statt
   `as HTMLElement`.
 - `react-hooks/refs`: keine Ref-Updates während Render — Props direkt nutzen.
+
+## Nachtrag: BorderBeam (libraries.dev/beam)
+- `border-beam@1.4.1` installiert (bun).
+- Beam um die Overlay-Suchleiste (`command-search.tsx`) und das Dock-Input
+  (`chat-dock.tsx`): `size="md"`, `borderRadius` 12/10, `strength={0.85}`,
+  `theme` aus `resolvedTheme` (auto folgt nur System, nicht dem App-Toggle).
