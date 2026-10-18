@@ -17,7 +17,7 @@ on the bundled CSV dataset.
 
 | Package | Version | Purpose |
 |---|---|---|
-| [Next.js](https://nextjs.org) | 16.4.0 | App Router, Server Components, Route Handlers (`/api/research`, `/api/analyst`), Turbopack dev server |
+| [Next.js](https://nextjs.org) | 16.4.0 | App Router, Server Components, Route Handlers (`/api/resolve`, `/api/research`, `/api/analyst`, streamed as Server-Sent Events), Turbopack dev server |
 | [React](https://react.dev) / React DOM | 19.3.0 | UI rendering |
 | [TypeScript](https://www.typescriptlang.org) | 5.9.3 | Static typing |
 | [Tailwind CSS](https://tailwindcss.com) | 4.3.3 | Styling, via `@tailwindcss/postcss` |
@@ -47,7 +47,8 @@ definitions).
 
 | Package | Version | Purpose |
 |---|---|---|
-| [deepagents](https://github.com/langchain-ai/deepagents) | 0.7.28 | Deep Agent loop: planning, virtual filesystem, sub-agents |
+| [deepagents](https://github.com/langchain-ai/deepagents) | 0.7.28 | Deep Agent loop for the free-text analyst (`analyst.py`) |
+| [LangGraph](https://langchain-ai.github.io/langgraph/) | 1.2.16 (via LangChain) | `create_react_agent` for the eight parallel criteria sub-agents in `app.py` |
 | [LangChain](https://python.langchain.com) (`langchain`, `langchain-core`) | 1.4.6 / 1.6.12 | Agent and model abstractions, structured output |
 | [langchain-nebius](https://pypi.org/project/langchain-nebius/) | 0.1.3 | `ChatNebius` chat model for Token Factory |
 | [langchain-tavily](https://pypi.org/project/langchain-tavily/) | 0.2.18 | `TavilySearch` tool for the agent |

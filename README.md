@@ -10,14 +10,16 @@ scores them on the same risk schema.
   shortlist memo.
 - **Type-anywhere search and analyst chat**: start typing anywhere to search
   suppliers, or ask a question about the dataset in the chat dock.
-- **Research a real company**: enter a company name; the agent runs web
-  research, scores every risk dimension with a reason and source URLs, and
-  adds the supplier to the dashboard.
+- **Research a real company**: enter a company name; the agent checks for an
+  existing match, resolves the official name, researches eight risk-criteria
+  groups in parallel on the web with live progress, scores every risk
+  dimension with a reason and source URLs, and adds the supplier to the
+  dashboard.
 
 ```mermaid
 flowchart LR
   B[Browser] -->|"GET / , /compare"| P[Server Components]
-  B -->|"POST /api/research<br>POST /api/analyst"| N[Next.js route handlers]
+  B -->|"POST /api/resolve, /api/research,<br>/api/analyst (streamed)"| N[Next.js route handlers]
   P -->|DuckDB SQL| D[(data/supplier_risk_dataset.csv<br>+ agent output CSV)]
   N -->|spawns| A[Python deep research agent]
   A --> M[Nebius Token Factory<br>MiniMax-M3]
@@ -91,14 +93,14 @@ path before starting Next.js.
 bun run dev
 ```
 
-Open http://localhost:3000. A company research takes about one to two
-minutes.
+Open http://localhost:3000. A company research takes roughly 30–60 seconds.
 
 The agent can also run on its own, without the dashboard:
 
 ```bash
 cd deep-research-agent
 .venv/bin/python app.py "Robert Bosch GmbH"          # score one supplier
+.venv/bin/python app.py --jobs 2 "Bosch" "Siemens"   # several in parallel
 .venv/bin/python analyst.py "Your risk question"     # sourced free-text answer
 ```
 
@@ -122,8 +124,10 @@ agent's options.
   right sidebar (a sheet on small screens).
 - **Compare and export**: compare the selected suppliers on `/compare` or
   export a shortlist memo.
-- **Research a real company**: researched companies appear with `RSCH_` ids
-  next to the anonymized `SUPP_` dataset rows.
+- **Research a real company**: the dialog first offers existing suppliers with
+  a similar name, then shows the agent's progress and the sources behind
+  each score. Researched companies appear with `RSCH_` ids next to the
+  anonymized `SUPP_` dataset rows.
 
 All risk scores run from 0 (no risk) to 100 (maximum risk); higher delivery
 ratings are better. Column definitions are in
@@ -143,15 +147,20 @@ bun run build       # production build
 app/                    Next.js App Router
   page.tsx              Dashboard (rendered per request)
   compare/              Side-by-side comparison page
-  api/research/         POST: research + score a real company
-  api/analyst/          POST: sourced answer to a free-text risk question
+  api/resolve/          POST: casual name → official company name
+  api/research/         POST: research + score a real company (SSE stream)
+  api/analyst/          POST: sourced answer to a free-text question (SSE)
 components/dashboard/   Dashboard UI (table, chart, filters, search, chat dock)
 components/analyst/     Rendering of structured analyst answers
 components/ui/          shadcn/ui components (Base UI primitives)
 lib/supplier-data.ts    DuckDB query + zod validation of supplier rows
+lib/agent-stream.ts     Runs agent scripts and streams progress as SSE
+lib/agent-events.ts     Client-side reader for the agent streams
+lib/fuzzy-match.ts      Finds existing suppliers for a typed company name
 lib/analyst/            Answer schema and dataset-based answer composer
 data/                   Anonymized supplier dataset and column descriptions
-deep-research-agent/    Python agent (research, scoring, analyst Q&A)
+deep-research-agent/    Python agent (research, scoring, analyst Q&A);
+                        pipeline details in OVERVIEW.md
 Dockerfile, compose.yml All-in-one image (Next.js + Python agent)
 design/mockups/         Static design snapshots
 docs/                   Architecture and tech-stack documentation
